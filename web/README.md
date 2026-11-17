@@ -17,7 +17,12 @@
 
 ### 구글 클라우드 설정(한 번)
 OAuth 동의 화면: 외부 · 범위 `drive.appdata`, `openid`, `email` · 프로덕션 게시.
-OAuth 클라이언트 ID(웹): 승인된 자바스크립트 원본 `https://kimjonghyeok62.github.io`, `http://localhost:5178`.
+OAuth 클라이언트 ID(웹): 승인된 자바스크립트 원본 `https://safety-form.vercel.app`, `http://localhost:5178`.
+
+## 배포
+Vercel 프로젝트 `safety-form`(GitHub 연결) — `main` 에 push 하면 https://safety-form.vercel.app 으로 나간다.
+설정은 저장소 루트의 `vercel.json`. 옛 GitHub Pages 주소는 새 주소로 넘겨 주는 쪽만 남겼다(`.github/workflows/pages.yml`).
+CLI 로 직접 올릴 때도 `.vercelignore` 가 `web/` 밖(학교 자료 · xlsm · 백업)을 막는다.
 
 ```
 npm install
