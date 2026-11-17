@@ -94,9 +94,18 @@ export function signOut() {
 
 async function api(url, opts = {}) {
   if (!tokenValid()) throw authError("구글 로그인 시간이 지났습니다");
-  console.debug("[drive]", opts.method || "GET", url.replace(/\?.*/, ""));
-  const r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
-  console.debug("[drive] →", r.status);
+  // 응답이 오래 안 오면 끊는다 ― 줄이 영영 막히지 않게(멈춤 → [다시 시도])
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30000);
+  let r;
+  try {
+    r = await fetch(url, { ...opts, signal: ctl.signal, cache: "no-store",
+      headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    throw new Error(err?.name === "AbortError" ? "구글 드라이브가 응답하지 않습니다(인터넷 연결 확인)" : "구글 드라이브에 연결하지 못했습니다");
+  } finally {
+    clearTimeout(timer);
+  }
   if (r.status === 401) { forgetToken(); throw authError("구글 로그인 시간이 지났습니다"); }
   if (r.status === 404) { const e = new Error("파일 없음"); e.code = "404"; throw e; }
   if (!r.ok) {

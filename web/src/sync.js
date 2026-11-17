@@ -18,10 +18,10 @@ export function createSync(app) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
   async function writeTarget() {
-    const d = app.getData();
-    console.debug("[sync] write…");
+    // 올리는 동안에도 사용자는 계속 고친다. 올린 그 순간의 사본과 그 시각을 기록해야
+    // 다음 차례에 "파일이 바뀌었다"로 잘못 읽어 옛 내용으로 되돌리지 않는다.
+    const d = JSON.parse(JSON.stringify(app.getData()));
     await s.target.write(d);
-    console.debug("[sync] write ok");
     s.target.meta.syncedAt = d.updatedAt ?? null;
     s.target.meta.savedAt = new Date().toISOString();
     await s.target.saveMeta();
@@ -37,9 +37,7 @@ export function createSync(app) {
   }
 
   async function reconcile() {
-    console.debug("[sync] read…");
     const raw = await s.target.read();
-    console.debug("[sync] read ok", raw?.updatedAt, "local", app.getData().updatedAt, "base", s.target.meta.syncedAt);
     let file = null;
     if (raw) { try { file = normalize(raw); } catch { throw new Error("이 프로그램의 저장 파일이 아닙니다"); } }
     const data = app.getData();
@@ -81,17 +79,22 @@ export function createSync(app) {
   }
 
   // mode: "connect" | "write" | "check"
+  // 한 번 맞출 때마다 대상을 읽고 쓰므로(구글은 몇 초 걸리기도 한다) 아직 시작 안 한 차례가
+  // 이미 줄에 있으면 새로 세우지 않는다 ― 그 차례가 시작할 때 최신 내용을 본다.
+  let waiting = null;
   function queue(mode) {
     if (!s.target) return chain;
-    if (mode !== "connect" && s.state !== "ok" && s.state !== "busy") return chain;
+    // 로그인·허락이 필요한 동안(prompt)은 멈춘다. 일시 오류(error)는 다음 고침 때 다시 해 본다.
+    if (mode !== "connect" && s.state !== "ok" && s.state !== "busy" && s.state !== "error") return chain;
     const target = s.target;
+    if (mode !== "connect" && waiting === target) return chain;
+    waiting = target;
     chain = chain.then(async () => {
+      if (waiting === target) waiting = null;
       if (s.target !== target) return;
       s.state = "busy"; app.onState();
       try {
-        console.debug("[sync] start", mode);
         await reconcile();
-        console.debug("[sync] done", mode);
         s.state = "ok"; s.error = "";
       } catch (err) {
         if (s.target !== target) return;
