@@ -304,7 +304,8 @@ function renderNav() {
       ${icon(it.icon)}<span>${it.label}</span>${badge}</button>`;
   };
   $("#sidenav").innerHTML = NAV.map((g) =>
-    `<div class="sidenav-group"><div class="sidenav-label">${g.group}</div>${g.items.map(item).join("")}</div>`).join("");
+    `<div class="sidenav-group"><div class="sidenav-label">${g.group}</div>${g.items.map(item).join("")}</div>`).join("")
+    + `<a class="sidenav-foot" href="./privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>`;
   $("#topnav").innerHTML = NAV.flatMap((g) => g.items).map(item).join("");
 }
 
@@ -410,7 +411,8 @@ function viewSaveBody() {
   </section>`;
 
   return `<div id="savePage">${googleCard}${fileCard}${backupCard}
-    <div class="alert is-info">이 웹페이지에는 서버가 없습니다. 기관정보 · 계약정보는 이 컴퓨터와, 직접 고른 곳(내 구글 드라이브 · 내 파일)에만 저장됩니다.</div></div>`;
+    <div class="alert is-info">이 웹페이지에는 서버가 없습니다. 기관정보 · 계약정보는 이 컴퓨터와, 직접 고른 곳(내 구글 드라이브 · 내 파일)에만 저장됩니다.
+      <a href="./privacy.html" target="_blank" rel="noopener">개인정보처리방침</a></div></div>`;
 }
 
 // ---------------------------------------------------------------- 사용법
@@ -428,7 +430,8 @@ function viewHelp() {
     <h2 class="card-title">자주 묻는 것</h2>
     <dl class="qa">
       <dt>입력한 정보는 어디에 저장되나요?</dt>
-      <dd>이 컴퓨터의 브라우저 안에 저장됩니다. 서버가 없어 개발자에게 오지 않습니다. 다른 컴퓨터에서도 쓰려면 [저장 · 이어쓰기]에서 구글 계정으로 로그인하세요.</dd>
+      <dd>이 컴퓨터의 브라우저 안에 저장됩니다. 서버가 없어 개발자에게 오지 않습니다. 다른 컴퓨터에서도 쓰려면 [저장 · 이어쓰기]에서 구글 계정으로 로그인하세요.
+        자세한 내용은 <a href="./privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있습니다.</dd>
       <dt>다른 컴퓨터에서 이어서 쓰려면?</dt>
       <dd>[저장 · 이어쓰기] → [구글 계정으로 로그인]. 다른 컴퓨터에서도 같은 계정으로 로그인하면 같은 내용이 뜹니다.</dd>
       <dt>한글이 없어도 되나요?</dt>
