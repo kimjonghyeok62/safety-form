@@ -16,6 +16,30 @@ function openDb() {
 
 let memory = null;
 
+// 작은 설정값(자동 저장 대상 정보 등) — 같은 저장소의 다른 키
+export async function kvGet(key) {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const r = db.transaction(STORE).objectStore(STORE).get(key);
+      r.onsuccess = () => resolve(r.result ?? null);
+      r.onerror = () => reject(r.error);
+    });
+  } catch { return null; }
+}
+export async function kvPut(key, value) {
+  try {
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      value === undefined ? tx.objectStore(STORE).delete(key) : tx.objectStore(STORE).put(value, key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* 설정값만 못 남김 */ }
+}
+export const kvDel = (key) => kvPut(key, undefined);
+
 export async function loadLocal() {
   try {
     const db = await openDb();

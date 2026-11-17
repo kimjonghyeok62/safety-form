@@ -3,11 +3,21 @@
 엑셀(.xlsm) 매크로 없이 브라우저에서 같은 한글(hwpx) 서식을 만든다. 서버 없음.
 학교 정보는 그 PC 브라우저(IndexedDB)와 사용자가 내려받는 `.json` 백업 파일에만 있다.
 
-**드라이브 폴더 자동 저장**(`src/store/fileLink.js`): 구글 로그인 없이, 구글 드라이브 데스크톱 폴더
-(G:\내 드라이브 등)의 `.json` 파일 하나를 File System Access API 로 골라 두고 고칠 때마다 그 파일에 쓴다.
-파일 핸들은 IndexedDB 에 보관하고, 새로고침 뒤 권한이 풀리면 [자동 저장 다시 켜기] 한 번으로 이어진다.
-쓰기 전에 파일을 다시 읽어 다른 PC 가 고쳤는지 보고, 양쪽 다 고쳤으면 사용자가 고른다.
-크롬·엣지·웨일만 되고, 그 밖의 브라우저는 버튼이 숨고 백업 파일 저장/불러오기를 쓴다.
+화면 틀은 원가계산서 제비율 스마트 체크(cost-checker_web)와 같은 디자인 언어다(남색 머리띠 · 왼쪽 메뉴 · Pretendard).
+
+## 저장 · 이어쓰기 (자동 저장 대상은 한 번에 하나, `src/sync.js`)
+- **구글 계정으로 이어쓰기**(`src/store/googleDrive.js`): Google Identity Services 토큰 + Drive API 로
+  그 사람 드라이브의 앱 전용 숨김 폴더(`appDataFolder`)에 `safety-form-data.json` 하나를 둔다.
+  권한은 `drive.appdata`(+ `email`) 뿐. 브라우저 ↔ 구글 직통이라 개발자 쪽을 거치지 않는다.
+  **`src/config.js` 의 `GOOGLE_CLIENT_ID` 가 비어 있으면 "준비 중"으로 보인다.**
+  토큰은 1시간짜리라 다음 날·다른 PC 에서는 [구글 계정으로 이어서 하기] 한 번을 누른다.
+- **내 컴퓨터 파일에 자동 저장**(`src/store/fileLink.js`): File System Access API 로 고른 `.json` 파일에 쓴다.
+  크롬·엣지·웨일만 된다.
+- 쓰기 전에 대상을 다시 읽어 다른 PC 가 고쳤는지 본다. 대상만 바뀌었으면 가져오고, 양쪽 다 바뀌었으면 사용자가 고른다.
+
+### 구글 클라우드 설정(한 번)
+OAuth 동의 화면: 외부 · 범위 `drive.appdata`, `openid`, `email` · 프로덕션 게시.
+OAuth 클라이언트 ID(웹): 승인된 자바스크립트 원본 `https://kimjonghyeok62.github.io`, `http://localhost:5178`.
 
 ```
 npm install
