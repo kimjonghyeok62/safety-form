@@ -1,0 +1,7 @@
+# CLI 로 올릴 때 web/ 과 설정만 보낸다(학교 자료·xlsm·백업이 올라가지 않게)
+/*
+!/web
+!/vercel.json
+/web/node_modules
+/web/dist
+/web/test/out

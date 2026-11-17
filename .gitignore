@@ -12,3 +12,6 @@ web/dist/
 web/test/out/
 ~$*
 _scripts/_archive/
+
+.vercel
+.env*
