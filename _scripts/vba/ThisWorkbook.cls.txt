@@ -1,0 +1,21 @@
+' 통합문서 모듈 ― 시트 코드 창에 그대로 들어간다.
+Option Explicit
+
+Private Sub Workbook_Open()
+    On Error Resume Next
+    ' 체크박스 모양을 셀 값과 맞춘다(다른 PC에서 열었을 때 어긋나는 것 방지)
+    SyncCheckboxes
+    ' 출력관리 D열(점검요일)에 입력정보 값을 비춘다. 수식이 아니라 값이라
+    ' 여기서 바로 고칠 수 있고, 고치면 입력정보로 되돌아간다.
+    RefreshOutputWeekdays
+    ' 파일을 덮어 둔 사이에 계약 종료일이 지났으면 여기서 완료로 넘어간다.
+    ' (사용자가 직접 고른 줄은 건드리지 않는다)
+    RefreshAllProgress
+    On Error GoTo 0
+End Sub
+
+Private Sub Workbook_SheetActivate(ByVal Sh As Object)
+    On Error Resume Next
+    If Sh.Name = SH_OUTPUT Then RefreshOutputWeekdays
+    On Error GoTo 0
+End Sub

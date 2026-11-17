@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- 외부로 나가는 요청을 막는다. 구글 드라이브 연동을 붙일 때 connect-src 에 구글 주소를 더한다. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'" />
+  <title>중대재해예방 서식</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>중대재해예방 서식</h1>
+      <p class="sub">입력한 정보는 <b>이 컴퓨터의 브라우저 안에만</b> 저장됩니다. 어디로도 보내지 않습니다.</p>
+    </div>
+    <div class="save-area">
+      <span id="saveState" class="save-state"></span>
+      <button id="btnBackup" class="btn">내 정보 파일로 저장</button>
+      <label class="btn file-btn">파일 불러오기<input id="fileImport" type="file" accept=".json,application/json" hidden /></label>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="org" class="tab">① 기관정보</button>
+    <button role="tab" data-tab="contracts" class="tab">② 계약정보</button>
+    <button role="tab" data-tab="output" class="tab">③ 출력</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

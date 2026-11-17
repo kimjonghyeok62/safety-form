@@ -1,0 +1,70 @@
+Option Explicit
+
+'==============================================================================
+' 입력정보 시트 이벤트
+'
+' 사용자가 손을 덜 대도록, 한 칸을 채우면 딸린 칸들이 알아서 따라 채워진다.
+'   · 기관구분을 고르면  → 결재선 직위 기본값이 들어간다
+'   · 계약명을 넣으면    → 계약유형 · 작업유형 · 점검요일 · 계획서유형이 채워진다
+'   · 계약 종료일을 넣으면 → 비고에 진행 / 완료가 뜨고 줄 색이 바뀐다
+'==============================================================================
+
+Private Sub Worksheet_Change(ByVal Target As Range)
+    If Application.EnableEvents = False Then Exit Sub
+    On Error GoTo Done
+
+    ' ① 기관구분 → 결재선 직위 기본값 (+ 성명·전화 보관/복원)
+    If Not Application.Intersect(Target, Me.Cells(IN_SCHOOL_ROW, IC_기관구분)) Is Nothing Then
+        ApplyOrgDefaults
+    End If
+
+    Dim cel As Range
+    For Each cel In Target.Cells
+        If cel.Row < IN_FIRST_ROW Or cel.Row > IN_LAST_ROW Then GoTo NextCell
+
+        Select Case cel.Column
+            Case CC_계약명
+                RefreshContractType cel.Row
+                RefreshWorkTypes cel.Row
+                EnsureInspectWeekday cel.Row
+                EnsurePlanType cel.Row
+                RefreshProgress cel.Row
+                ' 무엇을 추천했는지 알린다. 한 칸을 고쳤을 때만 ―
+                ' 여러 줄을 붙여넣을 때마다 창이 뜨면 붙여넣기를 할 수 없다.
+                If Target.Cells.Count = 1 Then ShowDetectNotice cel.Row
+
+            Case CC_시작일, CC_종료일
+                ' 기간이 바뀌면 계획서 유형(공사/용역/상세) 자동 판정 결과가 달라진다
+                RefreshWorkTypes cel.Row
+                ' 종료일이 오늘보다 앞이면 완료, 아니면 진행
+                RefreshProgress cel.Row
+
+            Case CC_고소 To CC_전기
+                ' 사용자가 직접 고친 칸은 회색으로 못박아 자동 판정이 건드리지 않게 한다
+                MarkManual cel
+
+            Case CC_계약유형
+                MarkManual cel
+                RefreshWorkTypes cel.Row
+
+            Case CC_비고
+                ' 사용자가 고른 진행/완료는 날짜 판정보다 우선한다.
+                ' 칸을 비우면 표시가 풀려 다시 날짜 기준으로 돌아간다.
+                MarkRemarkManual cel
+        End Select
+NextCell:
+    Next cel
+
+Done:
+End Sub
+
+' 계약 시작일·종료일 칸을 두 번 누르면 달력이 뜬다.
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    If Target.Row < IN_FIRST_ROW Or Target.Row > IN_LAST_ROW Then Exit Sub
+    If Target.Column <> CC_시작일 And Target.Column <> CC_종료일 Then Exit Sub
+
+    Cancel = True
+    On Error Resume Next
+    ShowCalendarUI Target
+    On Error GoTo 0
+End Sub

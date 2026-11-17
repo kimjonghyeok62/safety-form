@@ -1,0 +1,48 @@
+Option Explicit
+
+'==============================================================================
+' 출력관리 시트 이벤트
+'
+'   · E열(점검요일)을 바꾸면 입력정보로 되돌려 쓴다.
+'     순회·합동 점검표를 뽑기 직전에 요일을 확인·변경할 수 있어야 하는데,
+'     수식으로 비춰 두면 편집이 안 되므로 이벤트로 양방향을 잇는다.
+'   · 계약명을 두 번 누르면 입력정보의 그 줄로 되돌아간다.
+'==============================================================================
+
+Private Sub Worksheet_Change(ByVal Target As Range)
+    If Application.EnableEvents = False Then Exit Sub
+    On Error GoTo Done
+
+    Dim cel As Range
+    For Each cel In Target.Cells
+        If cel.Column <> OC_점검요일 Then GoTo NextCell
+        If cel.Row < OUT_FIRST_ROW Or cel.Row > OUT_LAST_ROW Then GoTo NextCell
+
+        Dim ir As Long
+        ir = InputRow(cel.Row)
+        If Not IsContractRow(ir) Then GoTo NextCell
+
+        Application.EnableEvents = False
+        WsInput().Cells(ir, CC_점검요일).Value = cel.Value
+        Application.EnableEvents = True
+NextCell:
+    Next cel
+
+Done:
+    Application.EnableEvents = True
+End Sub
+
+' 계약명을 두 번 누르면 입력정보의 그 줄로 돌아간다.
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    If Target.Column <> OC_계약명 Then Exit Sub
+    If Target.Row < OUT_FIRST_ROW Or Target.Row > OUT_LAST_ROW Then Exit Sub
+
+    Dim ir As Long
+    ir = InputRow(Target.Row)
+    If Not IsContractRow(ir) Then Exit Sub
+
+    Cancel = True
+    WsInput().Activate
+    Application.Goto WsInput().Cells(ir, CC_계약명), False
+    WsInput().Cells(ir, CC_계약명).Select
+End Sub

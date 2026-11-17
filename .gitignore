@@ -1,0 +1,14 @@
+# 학교 정보·개인 자료가 들어갈 수 있는 것은 올리지 않는다
+*.xlsm
+*.xlsx
+_backup/
+출력/
+ref/
+form/_bin/
+.claude/
+**/__pycache__/
+web/node_modules/
+web/dist/
+web/test/out/
+~$*
+_scripts/_archive/

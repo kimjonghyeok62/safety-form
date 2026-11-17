@@ -1,0 +1,31 @@
+' =============================================================================
+'  보관본 ― 이 파일은 build_workbook.py 가 **주입하지 않는다.**
+'
+'  날짜 달력(입력정보 시작일·종료일 칸을 두 번 누르면 뜨는 창)의 코드다.
+'  통합문서 안에만 살아 있고 VBA_MODULES 에도 OBSOLETE 에도 없어서, 빌드가
+'  손대지 않은 덕에 지금까지 남았다. 통합문서가 상하면 되살릴 길이 없어
+'  여기에 떠 둔다. 고칠 일이 있으면 VBA 편집기에서 직접 고치고 이 파일도 함께 고칠 것.
+'
+'  frmCalendar 는 폼이라 코드만으로는 되살릴 수 없다(버튼 42개의 배치가 폼에 있다).
+'  통합문서를 잃으면 폼은 다시 그려야 한다.
+'  뜬 날짜: 2026-08-10
+' =============================================================================
+
+Attribute VB_Name = "modCalendar"
+Public targetCell As Range
+Public SelYear As Long
+Public SelMonth As Long
+
+Sub ShowCalendarUI(ByRef Target As Range)
+    Set targetCell = Target
+    On Error Resume Next
+    If IsDate(Target.Value) Then
+        SelYear = Year(CDate(Target.Value))
+        SelMonth = Month(CDate(Target.Value))
+    Else
+        SelYear = Year(Date)
+        SelMonth = Month(Date)
+    End If
+    frmCalendar.Show
+End Sub
+

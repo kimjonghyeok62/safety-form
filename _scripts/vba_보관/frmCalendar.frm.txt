@@ -1,0 +1,257 @@
+' =============================================================================
+'  보관본 ― 이 파일은 build_workbook.py 가 **주입하지 않는다.**
+'
+'  날짜 달력(입력정보 시작일·종료일 칸을 두 번 누르면 뜨는 창)의 코드다.
+'  통합문서 안에만 살아 있고 VBA_MODULES 에도 OBSOLETE 에도 없어서, 빌드가
+'  손대지 않은 덕에 지금까지 남았다. 통합문서가 상하면 되살릴 길이 없어
+'  여기에 떠 둔다. 고칠 일이 있으면 VBA 편집기에서 직접 고치고 이 파일도 함께 고칠 것.
+'
+'  frmCalendar 는 폼이라 코드만으로는 되살릴 수 없다(버튼 42개의 배치가 폼에 있다).
+'  통합문서를 잃으면 폼은 다시 그려야 한다.
+'  뜬 날짜: 2026-08-10
+' =============================================================================
+
+Attribute VB_Name = "frmCalendar"
+Attribute VB_Base = "0{8A278D18-7FBE-4CE2-AB99-EA6BDF9E3A56}{0391A2C1-5B6A-4662-A5E4-AB740ED2059F}"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = False
+Attribute VB_TemplateDerived = False
+Attribute VB_Customizable = False
+Private Sub UserForm_Initialize()
+    UpdateCalendarDisplay
+End Sub
+
+Private Sub cmdPrev_Click()
+    SelMonth = SelMonth - 1
+    If SelMonth < 1 Then
+        SelMonth = 12
+        SelYear = SelYear - 1
+    End If
+    UpdateCalendarDisplay
+End Sub
+
+Private Sub cmdNext_Click()
+    SelMonth = SelMonth + 1
+    If SelMonth > 12 Then
+        SelMonth = 1
+        SelYear = SelYear + 1
+    End If
+    UpdateCalendarDisplay
+End Sub
+
+Private Sub cmdToday_Click()
+    SelYear = Year(Date)
+    SelMonth = Month(Date)
+    SelectDate Day(Date)
+End Sub
+
+Sub UpdateCalendarDisplay()
+    lblTitle.caption = SelYear & "-" & Format(SelMonth, "00")
+    
+    Dim firstDay As Date
+    firstDay = DateSerial(SelYear, SelMonth, 1)
+    
+    Dim startCol As Integer
+    startCol = Weekday(firstDay, vbSunday)
+    
+    Dim daysInMonth As Integer
+    daysInMonth = Day(DateSerial(SelYear, SelMonth + 1, 0))
+    
+    Dim i As Integer
+    Dim dNum As Integer
+    
+    For i = 1 To 42
+        Dim btn As Object
+        On Error Resume Next
+        Set btn = Me.Controls("btnDay" & i)
+        On Error GoTo 0
+        If Not btn Is Nothing Then
+            dNum = i - startCol + 1
+            If dNum >= 1 And dNum <= daysInMonth Then
+                btn.caption = dNum
+                btn.Visible = True
+            Else
+                btn.Visible = False
+            End If
+        End If
+    Next i
+End Sub
+
+Private Sub SelectDate(dNum As Integer)
+    If Not targetCell Is Nothing Then
+        targetCell.Value = Format(DateSerial(SelYear, SelMonth, dNum), "YYYY-MM-DD")
+        targetCell.NumberFormat = "YYYY-MM-DD"
+    End If
+    Unload Me
+End Sub
+
+Private Sub btnDay1_Click()
+    SelectDate CInt(btnDay1.caption)
+End Sub
+
+Private Sub btnDay2_Click()
+    SelectDate CInt(btnDay2.caption)
+End Sub
+
+Private Sub btnDay3_Click()
+    SelectDate CInt(btnDay3.caption)
+End Sub
+
+Private Sub btnDay4_Click()
+    SelectDate CInt(btnDay4.caption)
+End Sub
+
+Private Sub btnDay5_Click()
+    SelectDate CInt(btnDay5.caption)
+End Sub
+
+Private Sub btnDay6_Click()
+    SelectDate CInt(btnDay6.caption)
+End Sub
+
+Private Sub btnDay7_Click()
+    SelectDate CInt(btnDay7.caption)
+End Sub
+
+Private Sub btnDay8_Click()
+    SelectDate CInt(btnDay8.caption)
+End Sub
+
+Private Sub btnDay9_Click()
+    SelectDate CInt(btnDay9.caption)
+End Sub
+
+Private Sub btnDay10_Click()
+    SelectDate CInt(btnDay10.caption)
+End Sub
+
+Private Sub btnDay11_Click()
+    SelectDate CInt(btnDay11.caption)
+End Sub
+
+Private Sub btnDay12_Click()
+    SelectDate CInt(btnDay12.caption)
+End Sub
+
+Private Sub btnDay13_Click()
+    SelectDate CInt(btnDay13.caption)
+End Sub
+
+Private Sub btnDay14_Click()
+    SelectDate CInt(btnDay14.caption)
+End Sub
+
+Private Sub btnDay15_Click()
+    SelectDate CInt(btnDay15.caption)
+End Sub
+
+Private Sub btnDay16_Click()
+    SelectDate CInt(btnDay16.caption)
+End Sub
+
+Private Sub btnDay17_Click()
+    SelectDate CInt(btnDay17.caption)
+End Sub
+
+Private Sub btnDay18_Click()
+    SelectDate CInt(btnDay18.caption)
+End Sub
+
+Private Sub btnDay19_Click()
+    SelectDate CInt(btnDay19.caption)
+End Sub
+
+Private Sub btnDay20_Click()
+    SelectDate CInt(btnDay20.caption)
+End Sub
+
+Private Sub btnDay21_Click()
+    SelectDate CInt(btnDay21.caption)
+End Sub
+
+Private Sub btnDay22_Click()
+    SelectDate CInt(btnDay22.caption)
+End Sub
+
+Private Sub btnDay23_Click()
+    SelectDate CInt(btnDay23.caption)
+End Sub
+
+Private Sub btnDay24_Click()
+    SelectDate CInt(btnDay24.caption)
+End Sub
+
+Private Sub btnDay25_Click()
+    SelectDate CInt(btnDay25.caption)
+End Sub
+
+Private Sub btnDay26_Click()
+    SelectDate CInt(btnDay26.caption)
+End Sub
+
+Private Sub btnDay27_Click()
+    SelectDate CInt(btnDay27.caption)
+End Sub
+
+Private Sub btnDay28_Click()
+    SelectDate CInt(btnDay28.caption)
+End Sub
+
+Private Sub btnDay29_Click()
+    SelectDate CInt(btnDay29.caption)
+End Sub
+
+Private Sub btnDay30_Click()
+    SelectDate CInt(btnDay30.caption)
+End Sub
+
+Private Sub btnDay31_Click()
+    SelectDate CInt(btnDay31.caption)
+End Sub
+
+Private Sub btnDay32_Click()
+    SelectDate CInt(btnDay32.caption)
+End Sub
+
+Private Sub btnDay33_Click()
+    SelectDate CInt(btnDay33.caption)
+End Sub
+
+Private Sub btnDay34_Click()
+    SelectDate CInt(btnDay34.caption)
+End Sub
+
+Private Sub btnDay35_Click()
+    SelectDate CInt(btnDay35.caption)
+End Sub
+
+Private Sub btnDay36_Click()
+    SelectDate CInt(btnDay36.caption)
+End Sub
+
+Private Sub btnDay37_Click()
+    SelectDate CInt(btnDay37.caption)
+End Sub
+
+Private Sub btnDay38_Click()
+    SelectDate CInt(btnDay38.caption)
+End Sub
+
+Private Sub btnDay39_Click()
+    SelectDate CInt(btnDay39.caption)
+End Sub
+
+Private Sub btnDay40_Click()
+    SelectDate CInt(btnDay40.caption)
+End Sub
+
+Private Sub btnDay41_Click()
+    SelectDate CInt(btnDay41.caption)
+End Sub
+
+Private Sub btnDay42_Click()
+    SelectDate CInt(btnDay42.caption)
+End Sub
+
