@@ -94,7 +94,9 @@ export function signOut() {
 
 async function api(url, opts = {}) {
   if (!tokenValid()) throw authError("구글 로그인 시간이 지났습니다");
+  console.debug("[drive]", opts.method || "GET", url.replace(/\?.*/, ""));
   const r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+  console.debug("[drive] →", r.status);
   if (r.status === 401) { forgetToken(); throw authError("구글 로그인 시간이 지났습니다"); }
   if (r.status === 404) { const e = new Error("파일 없음"); e.code = "404"; throw e; }
   if (!r.ok) {

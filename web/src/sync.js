@@ -19,7 +19,9 @@ export function createSync(app) {
 
   async function writeTarget() {
     const d = app.getData();
+    console.debug("[sync] write…");
     await s.target.write(d);
+    console.debug("[sync] write ok");
     s.target.meta.syncedAt = d.updatedAt ?? null;
     s.target.meta.savedAt = new Date().toISOString();
     await s.target.saveMeta();
@@ -35,7 +37,9 @@ export function createSync(app) {
   }
 
   async function reconcile() {
+    console.debug("[sync] read…");
     const raw = await s.target.read();
+    console.debug("[sync] read ok", raw?.updatedAt, "local", app.getData().updatedAt, "base", s.target.meta.syncedAt);
     let file = null;
     if (raw) { try { file = normalize(raw); } catch { throw new Error("이 프로그램의 저장 파일이 아닙니다"); } }
     const data = app.getData();
@@ -85,7 +89,9 @@ export function createSync(app) {
       if (s.target !== target) return;
       s.state = "busy"; app.onState();
       try {
+        console.debug("[sync] start", mode);
         await reconcile();
+        console.debug("[sync] done", mode);
         s.state = "ok"; s.error = "";
       } catch (err) {
         if (s.target !== target) return;
