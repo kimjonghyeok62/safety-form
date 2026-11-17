@@ -37,6 +37,23 @@ body {
 .save-area { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .save-state { color: var(--muted); font-size: .88rem; margin-right: 4px; }
 .save-state.warn { color: var(--danger); font-weight: 600; }
+.save-state.ok { color: var(--green); font-weight: 600; }
+
+/* 고르는 창 */
+.dlg {
+  border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px;
+  max-width: min(620px, calc(100vw - 32px)); color: var(--ink);
+}
+.dlg::backdrop { background: rgba(20, 28, 45, .45); }
+.dlg h2 { margin: 0 0 10px; font-size: 1.15rem; }
+.dlg-body p { margin: 0 0 10px; }
+.dlg-body ul { margin: 0 0 10px; padding-left: 1.2em; }
+.dlg-body li { margin-bottom: 6px; }
+.dlg-body .hint { color: var(--muted); font-size: .9rem; }
+.dlg-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+table.cmp { border-collapse: collapse; margin: 6px 0 12px; }
+table.cmp th, table.cmp td { border: 1px solid var(--line); padding: 6px 12px; text-align: center; }
+table.cmp th { background: #eef2f8; }
 
 .tabs { display: flex; gap: 4px; padding: 10px 20px 0; background: var(--panel); border-bottom: 1px solid var(--line); }
 .tab {

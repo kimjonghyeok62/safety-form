@@ -2,6 +2,10 @@
 import JSZip from "jszip";
 import { loadLocal, saveLocal, emptyData, normalize } from "./store/localStore.js";
 import {
+  FILE_NAME, linkSupported, loadLink, saveLink, clearLink, permission,
+  pickNew, pickExisting, readFile, writeFile,
+} from "./store/fileLink.js";
+import {
   refreshAuto, WORK_KEYS, WORK_NAMES, FORMS, planKind, progressOf,
   orgPositionDefaults, CONTRACT_TYPES,
 } from "./domain/dictionary.js";
@@ -30,23 +34,246 @@ function toast(msg, ms = 3500) {
 
 // ---------------------------------------------------------------- 저장
 let saveTimer = null;
+let localOk = true;
 function changed() {
   data.updatedAt = new Date().toISOString();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    const ok = await saveLocal(data);
-    showSaveState(ok);
+    localOk = await saveLocal(data);
+    queueSync("write");
+    showSaveState();
   }, 300);
 }
 
-function showSaveState(ok = true) {
+function showSaveState() {
   const el = $("#saveState");
-  if (!ok) { el.textContent = "브라우저에 저장하지 못했습니다 — 파일로 저장해 두세요"; el.className = "save-state warn"; return; }
+  const btn = $("#btnLink");
+  btn.hidden = !linkSupported();
+  if (linkSupported()) {
+    const L = {
+      none: ["드라이브 폴더에 자동 저장", "btn navy"],
+      prompt: ["자동 저장 다시 켜기", "btn green"],
+      error: ["자동 저장 다시 연결", "btn green"],
+      ok: ["자동 저장 설정", "btn grey"],
+      busy: ["자동 저장 설정", "btn grey"],
+    }[linkState];
+    btn.textContent = L[0]; btn.className = L[1];
+  }
+  if (!localOk) { el.textContent = "브라우저에 저장하지 못했습니다 — 파일로 저장해 두세요"; el.className = "save-state warn"; return; }
+  if (linkState === "ok" || linkState === "busy") {
+    const t = link.savedAt ? new Date(link.savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "";
+    el.textContent = `✓ 자동 저장 중 · ${link.name}${t ? ` (${t})` : ""}`;
+    el.className = "save-state ok";
+    return;
+  }
+  if (linkState === "prompt") {
+    el.textContent = "자동 저장이 멈춰 있습니다 — 오른쪽 버튼을 한 번 눌러 주세요";
+    el.className = "save-state warn"; return;
+  }
+  if (linkState === "error") {
+    el.textContent = `자동 저장하지 못했습니다 — ${linkError}`;
+    el.className = "save-state warn"; return;
+  }
   const b = data.backedUpAt ? data.backedUpAt.slice(0, 10) : null;
   const stale = !b || (data.updatedAt && data.updatedAt > data.backedUpAt);
   el.textContent = b ? `마지막 파일 저장: ${b}${stale ? " (그 뒤 고친 내용 있음)" : ""}` : "아직 파일로 저장한 적 없음";
   el.className = "save-state" + (stale && data.contracts.length ? " warn" : "");
 }
+
+// ---------------------------------------------------------------- 자동 저장 파일(드라이브 폴더)
+// link = { handle, name, syncedAt(파일과 이 PC 가 마지막으로 같았던 updatedAt), savedAt }
+let link = null;
+let linkState = "none"; // none | prompt | ok | busy | error
+let linkError = "";
+
+// 버튼 고르는 창. buttons = [{ label, value, cls }] → 고른 value (Esc 는 null)
+function choose(title, bodyHtml, buttons) {
+  const dlg = $("#dlg");
+  dlg.innerHTML = `<h2>${esc(title)}</h2><div class="dlg-body">${bodyHtml}</div>
+    <div class="dlg-btns">${buttons.map((b, i) =>
+      `<button class="btn ${b.cls || ""}" data-i="${i}">${esc(b.label)}</button>`).join("")}</div>`;
+  return new Promise((resolve) => {
+    const done = (v) => { dlg.close(); resolve(v); };
+    dlg.querySelectorAll("button[data-i]").forEach((b) =>
+      b.addEventListener("click", () => done(buttons[+b.dataset.i].value)));
+    dlg.oncancel = (e) => { e.preventDefault(); done(null); };
+    dlg.showModal();
+  });
+}
+
+const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString("ko-KR", {
+  year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "모름";
+const isEmptyData = (d) => !d.org.기관명 && !d.contracts.length;
+
+function adopt(next) {
+  data = next;
+  data.contracts.forEach((c) => { c.id ??= uid(); refreshAuto(c); });
+  selId = null; checked.clear();
+}
+
+async function writeLinked() {
+  await writeFile(link.handle, data);
+  link.syncedAt = data.updatedAt;
+  link.savedAt = new Date().toISOString();
+  await saveLink(link);
+}
+
+// 파일과 이 PC 를 맞춘다. mode: "connect"(연결할 때) | "write"(고친 뒤) | "check"(창으로 돌아왔을 때)
+async function reconcile(mode) {
+  let file;
+  try {
+    const raw = await readFile(link.handle);
+    file = raw ? normalize(raw) : null;
+  } catch (err) {
+    if (err?.name === "NotFoundError") throw new Error("파일을 찾지 못했습니다(옮겨졌거나 지워짐)");
+    if (err instanceof SyntaxError || /프로그램에서 저장한/.test(err?.message)) {
+      throw new Error("이 프로그램의 저장 파일이 아닙니다");
+    }
+    throw err;
+  }
+  const fileU = file?.updatedAt ?? null;
+  const localU = data.updatedAt ?? null;
+  if (!file) { await writeLinked(); return; }                       // 빈 새 파일
+  if (fileU === localU) {                                            // 이미 같음
+    link.syncedAt = localU; link.savedAt ??= new Date().toISOString(); await saveLink(link); return;
+  }
+  const base = link.syncedAt;
+  const fileChanged = fileU !== base;
+  const localChanged = localU !== base;
+
+  if (isEmptyData(data) || (fileChanged && !localChanged)) {        // 다른 컴퓨터에서 고친 내용 가져오기
+    adopt(file);
+    await saveLocal(data);
+    link.syncedAt = fileU; await saveLink(link);
+    render();
+    if (mode !== "connect" || !isEmptyData(file)) {
+      toast(`드라이브 파일에서 최신 내용을 가져왔습니다 — 계약 ${data.contracts.length}건`);
+    }
+    return;
+  }
+  if (!fileChanged || isEmptyData(file)) { await writeLinked(); return; } // 이 PC 에서만 고침
+
+  // 양쪽 다 고쳤다 ― 사람이 고른다
+  const pick = await choose("어느 내용을 쓸까요?",
+    `<p>이 컴퓨터와 드라이브 파일의 내용이 서로 다릅니다. 하나를 고르면 다른 쪽은 그 내용으로 바뀝니다.</p>
+     <table class="cmp"><tr><th></th><th>마지막 수정</th><th>계약</th></tr>
+       <tr><td>드라이브 파일</td><td>${esc(fmtWhen(fileU))}</td><td>${file.contracts.length}건</td></tr>
+       <tr><td>이 컴퓨터</td><td>${esc(fmtWhen(localU))}</td><td>${data.contracts.length}건</td></tr></table>
+     <p class="hint">잘 모르겠으면 [이 컴퓨터 내용을 파일로 저장]을 먼저 눌러 두면 이 컴퓨터 내용이 따로 남습니다.</p>`,
+    [
+      { label: "드라이브 파일 내용 쓰기", value: "file", cls: "navy" },
+      { label: "이 컴퓨터 내용 쓰기", value: "local", cls: "navy" },
+      { label: "이 컴퓨터 내용을 파일로 저장", value: "backup" },
+    ]);
+  if (pick === "backup") { backupDownload(); return reconcile(mode); }
+  if (pick === "file") {
+    adopt(file);
+    await saveLocal(data);
+    link.syncedAt = fileU; await saveLink(link);
+    render();
+    toast("드라이브 파일 내용으로 바꿨습니다.");
+  } else if (pick === "local") {
+    await writeLinked();
+    toast("이 컴퓨터 내용을 드라이브 파일에 저장했습니다.");
+  } else {
+    throw new Error("어느 내용을 쓸지 고르지 않아 멈췄습니다");
+  }
+}
+
+let syncChain = Promise.resolve();
+function queueSync(mode) {
+  if (!link || (linkState !== "ok" && linkState !== "busy")) return syncChain;
+  syncChain = syncChain.then(async () => {
+    if (mode !== "connect") linkState = "busy";
+    try {
+      await reconcile(mode);
+      linkState = "ok"; linkError = "";
+    } catch (err) {
+      linkState = "error"; linkError = err?.message || String(err);
+    }
+    showSaveState();
+  });
+  return syncChain;
+}
+
+async function connect(handle, { ask = false } = {}) {
+  const p = await permission(handle, ask);
+  if (p !== "granted") {
+    linkState = "prompt";
+    showSaveState();
+    return false;
+  }
+  link = link?.handle === handle ? link : { handle, name: handle.name, syncedAt: null, savedAt: null };
+  await saveLink(link);
+  linkState = "busy";
+  await queueSync("connect");
+  return linkState === "ok";
+}
+
+async function setupLink() {
+  const pick = await choose("드라이브 폴더에 자동 저장",
+    `<p>구글 드라이브 데스크톱 프로그램을 깔면 생기는 <b>구글 드라이브 폴더</b>(보통 <b>G:\\내 드라이브</b>)에
+       저장 파일을 하나 두면, 고칠 때마다 그 파일에 저장되고 드라이브가 알아서 올려 줍니다.
+       다른 컴퓨터에서도 같은 파일을 열면 이어서 쓸 수 있습니다.</p>
+     <p>구글 로그인은 필요 없습니다. 이 웹페이지는 고른 파일 하나에만 손을 댑니다.</p>
+     <ul>
+       <li><b>처음 쓰는 경우</b>: [새 저장 파일 만들기] → 왼쪽에서 <b>Google Drive</b>(G:) → <b>내 드라이브</b>를 고르고 저장</li>
+       <li><b>다른 컴퓨터에서 이미 만든 경우</b>: [있는 저장 파일 열기] → 드라이브 폴더의 <b>${esc(FILE_NAME)}</b> 열기</li>
+     </ul>`,
+    [
+      { label: "새 저장 파일 만들기", value: "new", cls: "navy" },
+      { label: "있는 저장 파일 열기", value: "open", cls: "navy" },
+      { label: "닫기", value: null },
+    ]);
+  if (!pick) return;
+  let handle;
+  try {
+    handle = pick === "new" ? await pickNew() : await pickExisting();
+  } catch (err) {
+    if (err?.name !== "AbortError") toast("파일을 고르지 못했습니다: " + err.message);
+    return;
+  }
+  link = { handle, name: handle.name, syncedAt: null, savedAt: null };
+  if (await connect(handle, { ask: true })) {
+    toast(`이제부터 고칠 때마다 '${handle.name}'에 자동 저장됩니다.`);
+  }
+}
+
+async function manageLink() {
+  const pick = await choose("자동 저장 설정",
+    `<p>지금 저장 파일: <b>${esc(link.name)}</b></p>
+     <p class="hint">마지막 저장: ${esc(fmtWhen(link.savedAt))}</p>`,
+    [
+      { label: "다른 파일로 바꾸기", value: "change", cls: "navy" },
+      { label: "자동 저장 끄기", value: "off", cls: "danger" },
+      { label: "닫기", value: null },
+    ]);
+  if (pick === "change") return setupLink();
+  if (pick === "off") {
+    await clearLink();
+    link = null; linkState = "none";
+    showSaveState();
+    toast("자동 저장을 껐습니다. 드라이브의 파일은 그대로 남아 있습니다.");
+  }
+}
+
+$("#btnLink").addEventListener("click", async () => {
+  if (!link || linkState === "none") return setupLink();
+  if (linkState === "prompt" || linkState === "error") {
+    if (await connect(link.handle, { ask: true })) toast("자동 저장을 다시 켰습니다.");
+    else if (linkState === "error" && /찾지 못했|저장 파일이 아닙/.test(linkError)) {
+      toast(`${linkError}\n[드라이브 폴더에 자동 저장]을 눌러 파일을 다시 골라 주세요.`, 8000);
+      await clearLink(); link = null; linkState = "none"; showSaveState();
+    } else if (linkState === "error") toast(linkError, 8000);
+    return;
+  }
+  return manageLink();
+});
+
+// 다른 컴퓨터에서 고쳤을 수 있으니 창으로 돌아오면 파일을 다시 본다
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && linkState === "ok") queueSync("check");
+});
 
 function download(name, bytes, type) {
   const url = URL.createObjectURL(new Blob([bytes], { type }));
@@ -56,11 +283,15 @@ function download(name, bytes, type) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-$("#btnBackup").addEventListener("click", () => {
+function backupDownload() {
   data.backedUpAt = new Date().toISOString();
   const name = `중대재해예방서식_${(data.org.기관명 || "내정보").replace(/[\\/:*?"<>|·]/g, "")}_${todayIso()}.json`;
   download(name, JSON.stringify(data, null, 1), "application/json");
-  changed();
+  saveLocal(data).then((ok) => { localOk = ok; showSaveState(); });
+}
+
+$("#btnBackup").addEventListener("click", () => {
+  backupDownload();
   toast("내 정보를 파일로 저장했습니다.\n다른 컴퓨터에서는 [파일 불러오기]로 이 파일을 여시면 됩니다.");
 });
 
@@ -483,4 +714,11 @@ view.addEventListener("click", (e) => {
   if (!data.org.기관명) tab = "org";
   else tab = data.contracts.length ? "output" : "contracts";
   render();
+  if (linkSupported()) {
+    const saved = await loadLink();
+    if (saved?.handle) {
+      link = saved;
+      await connect(saved.handle); // 권한이 남아 있으면 바로 맞추고, 아니면 [다시 켜기] 버튼
+    }
+  }
 })();

@@ -13,10 +13,11 @@
   <header class="top">
     <div class="brand">
       <h1>중대재해예방 서식</h1>
-      <p class="sub">입력한 정보는 <b>이 컴퓨터의 브라우저 안에만</b> 저장됩니다. 어디로도 보내지 않습니다.</p>
+      <p class="sub">입력한 정보는 <b>이 컴퓨터</b>(브라우저, 그리고 직접 고른 저장 파일)에만 저장됩니다. 어디로도 보내지 않습니다.</p>
     </div>
     <div class="save-area">
       <span id="saveState" class="save-state"></span>
+      <button id="btnLink" class="btn navy" hidden>드라이브 폴더에 자동 저장</button>
       <button id="btnBackup" class="btn">내 정보 파일로 저장</button>
       <label class="btn file-btn">파일 불러오기<input id="fileImport" type="file" accept=".json,application/json" hidden /></label>
     </div>
@@ -30,6 +31,7 @@
 
   <main id="view"></main>
 
+  <dialog id="dlg" class="dlg"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./src/main.js"></script>
 </body>
