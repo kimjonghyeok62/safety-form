@@ -526,14 +526,17 @@ function viewOrg() {
       </div>
       ${schoolPanel() || `<small class="field-note">학교명을 넣고 [찾기]를 누르면 주소 · 대표전화 · 팩스번호가 채워집니다.</small>`}
     </div>`
-    : `
+    : field("org.기관명", "기관명", { ph: "○○교육지원청", span: 2 });
+
+  const noVal = data.org.고유번호 ?? "";
+  const noField = `
     <div class="field span-2">
-      <span>기관명</span>
+      <span>고유번호</span>
       <div class="input-group">
-        <input data-path="org.기관명" value="${esc(nameVal)}" class="${nameVal.trim() ? "" : "empty"}" placeholder="○○교육지원청" />
+        <input data-path="org.고유번호" value="${esc(noVal)}" class="${noVal.trim() ? "" : "empty"}" placeholder="000-00-00000" inputmode="numeric" />
         <button type="button" class="btn btn-primary" data-act="inst-find">${icon("search", 18, "")}찾기</button>
       </div>
-      ${instPanel() || `<small class="field-note">기관명을 넣고 [찾기]를 누르면 나라장터에서 고유번호 · 주소를 가져옵니다.</small>`}
+      ${instPanel() || `<small class="field-note">고유번호(사업자등록번호)를 넣고 [찾기]를 누르면 나라장터에서 ${isSchool ? "빈 칸을" : "기관명 · 주소 · 전화 · 팩스를"} 채웁니다.</small>`}
     </div>`;
 
   return pageHead("기관정보", "처음 한 번만 채우면 됩니다. <b>노란 칸</b>이 아직 빈 칸입니다.") + welcome + `
@@ -542,7 +545,7 @@ function viewOrg() {
     ${seg}
     <div class="form-grid">
       ${nameField}
-      ${field("org.고유번호", "고유번호", { ph: "000-00-00000", span: 2 })}
+      ${noField}
       ${field("org.주소", "주소", { span: 2 })}
       ${field("org.전화번호", "대표전화")}
       ${field("org.팩스번호", "팩스번호")}
@@ -664,29 +667,12 @@ function schoolPick(h) {
   if (tel(h.ORG_FAXNO)) data.org.팩스번호 = tel(h.ORG_FAXNO);
   school = { region: school.region, busy: false, hits: null, msg: "" };
   changed(); render();
-  if (String(data.org.고유번호 || "").trim()) {
-    toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.`);
-    return;
-  }
-  // 고유번호는 나이스에 없다 → 나라장터 수요기관 정보에서 같은 학교(같은 교육지원청 밑)를 하나만 찾으면 채운다
-  toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.
-고유번호를 나라장터에서 찾는 중…`);
-  const flat = (s) => String(s || "").replace(/\s+/g, "");
-  g2b("inst", h.SCHUL_NM).then((items) => {
-    const m = items.filter((x) => flat(x.name).endsWith(flat(h.SCHUL_NM))
-      && (!h.JU_ORG_NM || flat(x.name).includes(flat(h.JU_ORG_NM))) && x.bizno);
-    if (m.length === 1 && data.org.기관명 === h.SCHUL_NM && !String(data.org.고유번호 || "").trim()) {
-      data.org.고유번호 = m[0].bizno;
-      changed(); keepFocus(render);
-      toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호 · 고유번호를 채웠습니다.`);
-    } else toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.
-고유번호는 찾지 못해 직접 넣어 주세요.`);
-  }).catch(() => toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.
-고유번호는 직접 넣어 주세요.`));
+  const noHint = String(data.org.고유번호 || "").trim() ? "" : "\n고유번호는 나이스에 없습니다. 고유번호 칸에 넣고 [찾기]로 확인할 수 있습니다.";
+  toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.${noHint}`);
 }
 
 // ---------------------------------------------------------------- 나라장터 찾기 (조달청 사용자정보 서비스)
-// 공공데이터포털 인증키를 감추려고 이 사이트의 /api/g2b(../api/g2b.js)를 거친다. 묻는 말만 넘기고 저장하지 않는다.
+// 공공데이터포털 인증키를 감추려고 이 사이트의 /api/g2b(../api/g2b.mjs)를 거친다. 묻는 말만 넘기고 저장하지 않는다.
 async function g2b(kind, q) {
   let r;
   try { r = await fetch(`/api/g2b?kind=${kind}&q=${encodeURIComponent(q)}`); }
@@ -698,41 +684,49 @@ async function g2b(kind, q) {
 }
 const bizDigits = (s) => String(s || "").replace(/\D/g, "");
 
-// 교육지원청 이름 → 고유번호 · 주소
+// 나라장터는 사업자등록번호(고유번호)로만 찾을 수 있다 ― 이름만으로는 조달청이 받지 않는다.
+// 번호 하나에 기관 · 업체는 하나뿐이라 한 건이면 바로 채우고, 여러 건이면 고르게 한다.
+const NEED_NO = "사업자등록번호 10자리를 넣어 주세요. 나라장터는 이름으로는 찾을 수 없습니다.";
+const filled = (labels) => labels.filter(Boolean).join(" · ");
+
+// 기관 고유번호 → 기관명 · 주소 · 전화 · 팩스 (빈 칸만)
 let inst = { busy: false, hits: null, msg: "" };
 const lastWord = (s) => String(s || "").trim().split(/\s+/).pop();
 
 function instPanel() {
   return lookupPanel("inst", inst, (inst.hits || []).map((h) => ({
-    title: lastWord(h.name), tag: h.bizno, sub: [h.name !== lastWord(h.name) ? h.name : "", h.addr].filter(Boolean).join(" · "),
+    title: h.short || lastWord(h.name), tag: h.bizno, sub: h.addr,
   })), "조달청 나라장터 수요기관 정보");
 }
 
 async function instFind() {
-  const q = (data.org.기관명 || "").trim();
-  if (q.replace(/\s/g, "").length < 2) { inst = { busy: false, hits: null, msg: "기관명을 두 글자 이상 넣어 주세요." }; return keepFocus(render); }
+  const no = bizDigits(data.org.고유번호);
+  if (no.length !== 10) { inst = { busy: false, hits: null, msg: "고유번호 10자리를 넣어 주세요. 나라장터는 이름으로는 찾을 수 없습니다." }; return keepFocus(render); }
   inst = { busy: true, hits: null, msg: "" };
   keepFocus(render);
   try {
-    const items = await g2b("inst", q);
-    inst = { busy: false, hits: items, msg: items.length ? hitMsg(items.length, items.length, "")
-      : "찾는 기관이 없습니다. 이름을 줄여서(예: ○○교육지원청) 다시 찾아 보세요." };
+    const items = await g2b("inst", no);
+    if (items.length === 1) { inst = { busy: false, hits: null, msg: "" }; return instPick(items[0]); }
+    inst = { busy: false, hits: items, msg: items.length ? "맞는 기관을 누르세요." : "나라장터에 이 번호로 등록된 기관이 없습니다. 번호를 확인해 주세요." };
   } catch (e) { inst = { busy: false, hits: null, msg: esc(e.message) + " 직접 넣어 주세요." }; }
   render();
 }
 
 function instPick(h) {
-  data.org.기관명 = lastWord(h.name);
-  if (h.bizno) data.org.고유번호 = h.bizno;
-  if (h.addr) data.org.주소 = h.addr;
-  if (h.tel) data.org.전화번호 = h.tel;
-  if (h.fax) data.org.팩스번호 = h.fax;
+  const o = data.org, empty = (k) => !String(o[k] || "").trim();
+  const nm = h.short || lastWord(h.name);
+  const got = [];
+  if (nm && empty("기관명")) { o.기관명 = nm; got.push("기관명"); }
+  if (h.bizno) o.고유번호 = h.bizno;
+  if (h.addr && empty("주소")) { o.주소 = h.addr; got.push("주소"); }
+  if (h.tel && empty("전화번호")) { o.전화번호 = h.tel; got.push("대표전화"); }
+  if (h.fax && empty("팩스번호")) { o.팩스번호 = h.fax; got.push("팩스번호"); }
   inst = { busy: false, hits: null, msg: "" };
   changed(); render();
-  toast(`${lastWord(h.name)} — ${[h.bizno && "고유번호", h.addr && "주소", h.tel && "대표전화", h.fax && "팩스번호"].filter(Boolean).join(" · ")}를 채웠습니다.`);
+  toast(got.length ? `나라장터: ${nm} — ${filled(got)}를 채웠습니다.` : `나라장터: ${nm} — 확인했습니다(이미 채워진 칸은 그대로 두었습니다).`);
 }
 
-// 업체명 또는 사업자등록번호 → 업체 정보
+// 업체 사업자등록번호 → 업체명 · 대표자 · 주소 · 전화
 let corp = { cid: "", busy: false, hits: null, msg: "" };
 
 function corpPanel(c) {
@@ -746,17 +740,14 @@ async function corpFind() {
   const c = cById(selId);
   if (!c) return;
   const no = bizDigits(c.사업자번호);
-  const q = no.length === 10 ? no : (c.업체명 || "").trim();
-  if (q.replace(/\s/g, "").length < 2) {
-    corp = { cid: c.id, busy: false, hits: null, msg: "업체명이나 사업자등록번호(10자리)를 먼저 넣어 주세요." };
-    return keepFocus(render);
-  }
+  if (no.length !== 10) { corp = { cid: c.id, busy: false, hits: null, msg: NEED_NO }; return keepFocus(render); }
   corp = { cid: c.id, busy: true, hits: null, msg: "" };
   keepFocus(render);
   try {
-    const items = await g2b("corp", q);
-    corp = { cid: c.id, busy: false, hits: items, msg: items.length ? hitMsg(items.length, items.length, "")
-      : "나라장터에 등록된 업체가 없습니다. 이름을 줄이거나 사업자등록번호로 찾아 보세요." };
+    const items = await g2b("corp", no);
+    if (items.length === 1) { corp = { cid: c.id, busy: false, hits: null, msg: "" }; return corpPick(items[0]); }
+    corp = { cid: c.id, busy: false, hits: items, msg: items.length ? "맞는 업체를 누르세요."
+      : "나라장터에 이 번호로 등록된 업체가 없습니다. 번호를 확인하거나 직접 넣어 주세요." };
   } catch (e) { corp = { cid: c.id, busy: false, hits: null, msg: esc(e.message) + " 직접 넣어 주세요." }; }
   render();
 }
@@ -771,7 +762,7 @@ function corpPick(h) {
   if (h.tel && !String(c.대표자전화 || "").trim()) c.대표자전화 = h.tel;
   corp = { cid: "", busy: false, hits: null, msg: "" };
   changed(); render();
-  toast(`${h.name} — ${[h.bizno && "사업자등록번호", h.ceo && "대표자", h.addr && "주소", h.tel && "전화"].filter(Boolean).join(" · ")}를 채웠습니다.
+  toast(`나라장터: ${h.name} — ${filled([h.name && "업체명", h.ceo && "대표자", h.addr && "주소", h.tel && "전화"])}를 채웠습니다.
 업체 담당자는 직접 넣어 주세요.`);
 }
 
@@ -857,17 +848,17 @@ function viewContractForm(c) {
     <p class="hint" style="margin-top:14px">계약기간: <b>${days ? days + "일" : "—"}</b></p>
   </section>
   <section class="card">
-    ${cardHead("briefcase", "계약 업체", "업체명이나 사업자등록번호를 넣고 <b>[나라장터에서 찾기]</b>를 누르면 대표자 · 주소 · 전화가 채워집니다.")}
+    ${cardHead("briefcase", "계약 업체", "<b>사업자등록번호</b>를 넣고 [나라장터에서 찾기]를 누르면 업체명 · 대표자 · 주소 · 전화가 채워집니다.")}
     <div class="grid">
       <div class="field wide">
-        <span>업체명</span>
+        <span>사업자등록번호</span>
         <div class="input-group">
-          <input data-cfield="업체명" value="${esc(c.업체명 ?? "")}" class="${String(c.업체명 ?? "").trim() ? "" : "empty"}" placeholder="(주)○○용역" />
+          <input data-cfield="사업자번호" value="${esc(c.사업자번호 ?? "")}" class="${String(c.사업자번호 ?? "").trim() ? "" : "empty"}" placeholder="000-00-00000" inputmode="numeric" />
           <button type="button" class="btn btn-primary" data-act="corp-find">${icon("search", 18, "")}나라장터에서 찾기</button>
         </div>
         ${corpPanel(c)}
       </div>
-      ${cfield(c, "사업자번호", "사업자등록번호", { ph: "000-00-00000" })}
+      ${cfield(c, "업체명", "업체명", { ph: "(주)○○용역" })}
       ${cfield(c, "업체대표", "업체 대표자")}
       ${cfield(c, "업체주소", "업체 주소", { wide: true })}
       ${cfield(c, "대표자전화", "대표자 전화")}
@@ -1055,8 +1046,9 @@ view.addEventListener("input", (e) => {
 view.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.isComposing) return;
   const d = e.target.dataset || {};
-  if (d.path === "org.기관명") { e.preventDefault(); (data.org.기관구분 || "학교") === "학교" ? schoolFind() : instFind(); }
-  else if (d.cfield === "업체명" || d.cfield === "사업자번호") { e.preventDefault(); corpFind(); }
+  if (d.path === "org.기관명" && (data.org.기관구분 || "학교") === "학교") { e.preventDefault(); schoolFind(); }
+  else if (d.path === "org.고유번호") { e.preventDefault(); instFind(); }
+  else if (d.cfield === "사업자번호") { e.preventDefault(); corpFind(); }
 });
 
 function keepFocus(fn) {
