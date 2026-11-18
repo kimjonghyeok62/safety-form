@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "render-sample": "node test/render-all.mjs"
+    "render-sample": "node test/render-all.mjs",
+    "test": "node test/sync-reset.mjs"
   },
   "dependencies": {
     "jszip": "3.10.1"

@@ -11,7 +11,12 @@ export function createSync(app) {
   // app: { getData, adopt(next), persistLocal(), render(), choose(title, html, buttons), toast(msg), backup(), onState() }
   const s = { target: null, state: "none", error: "" }; // state: none | prompt | busy | ok | error
   let chain = Promise.resolve();
-  const isEmpty = (d) => !d.org.기관명 && !d.contracts.length;
+  // 이 컴퓨터에서 한 번도 고친 적이 없을 때만 "빈 컴퓨터"로 보고 대상 내용을 그대로 가져온다.
+  // (예전에는 "기관명도 계약도 없음"으로 봐서, 기관명이 빈 채로 [목록 초기화]를 하면
+  //  드라이브의 옛 내용을 도로 가져와 초기화가 되지 않았다.)
+  const isFresh = (d) => !d.updatedAt;
+  // 내용이 있는지 ― 초기화해서 비었어도 되살리기용 휴지통이 있으면 내용이 있는 것으로 본다
+  const hasContent = (d) => !!(d.org?.기관명 || d.org?.고유번호 || d.contracts?.length || d.trash?.org || d.trash?.contracts);
   const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString("ko-KR", {
     year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "모름";
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (ch) =>
@@ -54,12 +59,12 @@ export function createSync(app) {
     const fileChanged = fileU !== base;
     const localChanged = localU !== base;
 
-    if (isEmpty(data) || (fileChanged && !localChanged)) {
+    if (isFresh(data) || (fileChanged && !localChanged)) {
       await take(file);
-      if (!isEmpty(file)) app.toast(`${s.target.where}에서 최신 내용을 가져왔습니다 — 계약 ${file.contracts.length}건`);
+      if (hasContent(file)) app.toast(`${s.target.where}에서 최신 내용을 가져왔습니다 — 계약 ${file.contracts.length}건`);
       return;
     }
-    if (!fileChanged || isEmpty(file)) return writeTarget();
+    if (!fileChanged || !hasContent(file)) return writeTarget();
 
     const pick = await app.choose("어느 내용을 쓸까요?",
       `<p>이 컴퓨터와 ${esc(s.target.where)}의 내용이 서로 다릅니다. 하나를 고르면 다른 쪽은 그 내용으로 바뀝니다.</p>
