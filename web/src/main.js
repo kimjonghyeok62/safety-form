@@ -7,6 +7,7 @@ import {
 } from "./store/fileLink.js";
 import {
   googleReady, loadGoogleMeta, clearGoogleMeta, googleTarget, signIn, signOut, whoAmI, tokenValid, loadGis,
+  redirectSignIn, takeRedirectResult,
 } from "./store/googleDrive.js";
 import { createSync } from "./sync.js";
 import {
@@ -146,10 +147,19 @@ async function googleConnect() {
   if (!googleReady()) { toast("구글 계정 이어쓰기는 준비 중입니다."); return; }
   try {
     await signIn(null);
-    authedThisSession = true;
+  } catch (err) {
+    if (err.code === "popup") offerRedirect(null); else toast(err.message, 6000);
+    return;
+  }
+  await finishGoogleConnect();
+}
+
+// 로그인(팝업이든 이 창에서 넘어갔다 왔든) 뒤 ― 계정 확인하고 그 드라이브와 맞춘다
+async function finishGoogleConnect() {
+  authedThisSession = true;
+  try {
     const email = await whoAmI();
-    const old = sync.s.target;
-    if (old?.kind === "file") await clearLink();
+    await clearLink(); // 파일 자동 저장을 쓰고 있었다면 구글로 바꾼다
     const prev = await loadGoogleMeta();
     const meta = prev?.email === email ? prev : { email, fileId: null, syncedAt: null, savedAt: null };
     const t = googleTarget(meta);
@@ -164,6 +174,26 @@ async function googleConnect() {
   } catch (err) {
     toast(err.message, 6000);
   }
+}
+
+// 팝업이 막힌 브라우저(차단 설정 · 확장 프로그램 · 기관 PC 정책): 이 창에서 구글로 넘어갔다 돌아온다
+let leaving = false;
+let popupBlocked = false;
+async function offerRedirect(hint) {
+  popupBlocked = true;
+  const pick = await choose("로그인 창이 막혀 있습니다",
+    `<p>이 브라우저가 구글 로그인 창(팝업)을 열지 못했습니다.
+      대신 <b>이 창에서</b> 구글 로그인 화면으로 넘어갔다가, 로그인이 끝나면 이 화면으로 돌아옵니다.</p>
+     <p class="hint">입력한 내용은 이 컴퓨터에 저장되어 있어 그대로 남습니다.</p>`,
+    [
+      { label: "이 창에서 구글 로그인", value: "go", cls: "btn-primary" },
+      { label: "닫기", value: null },
+    ]);
+  if (pick !== "go") return;
+  clearTimeout(saveTimer);
+  if (savePending) { localOk = await saveLocal(data); savePending = false; }
+  leaving = true;
+  redirectSignIn(hint);
 }
 
 async function googleOff() {
@@ -221,7 +251,10 @@ async function reconnect() {
       await signIn(t.meta.email);
       authedThisSession = true;
       if (!t.meta.email) { t.meta.email = await whoAmI(); await t.saveMeta(); }
-    } catch (err) { toast(err.message, 6000); return; }
+    } catch (err) {
+      if (err.code === "popup") offerRedirect(t.meta.email); else toast(err.message, 6000);
+      return;
+    }
     if (await sync.attach(t)) toast("구글 드라이브와 이어졌습니다.");
   } else {
     if ((await permission(t.meta.handle, true)) !== "granted") { toast("파일에 저장하도록 허락해 주세요."); return; }
@@ -255,11 +288,11 @@ $("#syncChip").addEventListener("click", () => {
 let authedThisSession = false;
 document.addEventListener("pointerdown", (e) => {
   const t = sync.s.target;
-  if (!t || t.kind !== "google" || !authedThisSession) return;
+  if (!t || t.kind !== "google" || !authedThisSession || popupBlocked) return;
   if (e.target.closest?.("[data-sync], #syncChip, dialog")) return;
   const st = sync.s.state;
   if ((st === "ok" && !tokenValid(5 * 60 * 1000)) || (st === "prompt" && t.meta.email)) {
-    signIn(t.meta.email).then(() => sync.attach(t)).catch(() => {});
+    signIn(t.meta.email).then(() => sync.attach(t)).catch((err) => { if (err.code === "popup") popupBlocked = true; });
   }
 }, true);
 
@@ -270,6 +303,7 @@ document.addEventListener("visibilitychange", () => {
 
 // 저장이 덜 끝났는데 창을 닫으려 하면 붙잡는다
 window.addEventListener("beforeunload", (e) => {
+  if (leaving) return;
   if (savePending || sync.s.state === "busy") { e.preventDefault(); e.returnValue = ""; }
 });
 
@@ -855,6 +889,11 @@ view.addEventListener("click", (e) => {
   render();
 
   // 켜 둔 자동 저장 대상을 다시 잇는다. 로그인 · 허락이 살아 있으면 바로, 아니면 [이어서 하기] 한 번
+  // 이 창에서 구글 로그인하고 막 돌아온 경우
+  const back = googleReady() ? takeRedirectResult() : null;
+  if (back?.ok) { await finishGoogleConnect(); return; }
+  if (back?.error) toast(back.error, 6000);
+
   const gmeta = googleReady() ? await loadGoogleMeta() : null;
   if (gmeta) {
     const t = googleTarget(gmeta);

@@ -18,6 +18,8 @@
 ### 구글 클라우드 설정(한 번)
 OAuth 동의 화면: 외부 · 범위 `drive.appdata`, `openid`, `email` · 프로덕션 게시.
 OAuth 클라이언트 ID(웹): 승인된 자바스크립트 원본 `https://safety-form.vercel.app`, `http://localhost:5178`.
+승인된 리디렉션 URI `https://safety-form.vercel.app/`, `http://localhost:5178/` — 팝업이 막힌 브라우저에서
+이 창째 구글로 넘어갔다 돌아오는 로그인에 쓴다(끝의 `/` 까지 똑같아야 한다).
 
 ## 배포
 Vercel 프로젝트 `safety-form`(GitHub 연결) — `main` 에 push 하면 https://safety-form.vercel.app 으로 나간다.

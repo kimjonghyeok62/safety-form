@@ -68,9 +68,11 @@ function tokenClient() {
     error_callback: (e) => {
       const w = waiting; waiting = null;
       if (!w) return;
-      const msg = e?.type === "popup_closed" ? "로그인 창을 닫아 멈췄습니다."
-        : e?.type === "popup_failed_to_open" ? "로그인 창이 막혔습니다. 주소창 오른쪽의 팝업 차단을 풀어 주세요."
-        : "구글 로그인에 실패했습니다.";
+      if (e?.type === "popup_failed_to_open") {
+        // 팝업 차단 · 확장 프로그램 · 기관 PC 정책 등 ― 이 창에서 넘어가는 로그인으로 대신한다
+        return w.reject(Object.assign(new Error("로그인 창(팝업)이 열리지 않았습니다."), { code: "popup" }));
+      }
+      const msg = e?.type === "popup_closed" ? "로그인 창을 닫아 멈췄습니다." : "구글 로그인에 실패했습니다.";
       w.reject(authError(msg));
     },
   });
@@ -90,6 +92,49 @@ export async function signIn(hint) {
 
 export function signOut() {
   forgetToken();
+}
+
+// ------------------------------------------------------------ 팝업 없이: 이 창에서 구글로 넘어갔다 돌아오기
+// 구글 클라우드의 OAuth 클라이언트 [승인된 리디렉션 URI]에 이 주소(끝의 / 포함)가 있어야 한다.
+const STATE_KEY = "safety-form-gstate";
+export const redirectUri = () => `${location.origin}/`;
+
+export function redirectSignIn(hint) {
+  const a = new Uint8Array(16);
+  crypto.getRandomValues(a);
+  const state = Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+  sessionStorage.setItem(STATE_KEY, state);
+  const p = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri(),
+    response_type: "token",
+    scope: SCOPE,
+    include_granted_scopes: "true",
+    enable_granular_consent: "true",
+    state,
+  });
+  if (hint) p.set("login_hint", hint); else p.set("prompt", "select_account");
+  location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
+}
+
+// 돌아왔을 때 주소의 # 뒤에서 결과를 꺼낸다. 없으면 null, 있으면 { ok } 또는 { error }
+export function takeRedirectResult() {
+  if (!/[#&](access_token|error)=/.test(location.hash)) return null;
+  const p = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, "", location.pathname + location.search); // 토큰을 주소창에서 지운다
+  let expected = null;
+  try { expected = sessionStorage.getItem(STATE_KEY); sessionStorage.removeItem(STATE_KEY); } catch { /* 무시 */ }
+  if (!expected || p.get("state") !== expected) return null; // 이 창이 보낸 요청이 아니면 버린다
+  if (p.get("error")) {
+    return { error: p.get("error") === "access_denied" ? "구글 로그인을 취소했습니다." : `구글 로그인에 실패했습니다(${p.get("error")}).` };
+  }
+  if (!(p.get("scope") || "").split(" ").includes(DRIVE_SCOPE)) {
+    return { error: "드라이브 저장 허락에 체크해야 저장할 수 있습니다. 다시 로그인하면서 체크해 주세요." };
+  }
+  token = p.get("access_token");
+  exp = Date.now() + (Number(p.get("expires_in") || 3600) - 120) * 1000;
+  try { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp })); } catch { /* 무시 */ }
+  return { ok: true };
 }
 
 async function api(url, opts = {}) {
