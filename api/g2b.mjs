@@ -63,8 +63,8 @@ async function call(op, params, key) {
   const p = new URLSearchParams({ serviceKey: key, pageNo: "1", numOfRows: "10", type: "json", ...params });
   const r = await fetch(BASE + op + "?" + p, { signal: AbortSignal.timeout(9000) });
   const text = await r.text();
-  try { return unwrap(JSON.parse(text)); }
-  catch { return { code: "HTTP" + r.status, msg: (text.match(/<returnAuthMsg>([^<]*)/) || text.match(/<resultMsg>([^<]*)/) || [])[1] || "응답을 읽지 못함", rows: [] }; }
+  try { return { ...unwrap(JSON.parse(text)), text }; }
+  catch { return { text, code: "HTTP" + r.status, msg: (text.match(/<returnAuthMsg>([^<]*)/) || text.match(/<resultMsg>([^<]*)/) || [])[1] || "응답을 읽지 못함", rows: [] }; }
 }
 
 async function lookup(kind, q, key) {
@@ -82,7 +82,7 @@ async function lookup(kind, q, key) {
   const log = [];
   for (const t of tries) {
     last = await call(OPS[kind], { ...t, ...what }, key);
-    log.push({ ...t, code: last.code, msg: last.msg, n: last.rows.length });
+    log.push({ ...t, code: last.code, msg: last.msg, n: last.rows.length, head: last.rows.length ? undefined : String(last.text || "").slice(0, 300) });
     if (last.rows.length) break;
     if (/^(20|22|30|31|32|33)$/.test(last.code)) break; // 키 · 권한 · 한도 문제는 다시 물어도 같다
   }
