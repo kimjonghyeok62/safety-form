@@ -17,9 +17,7 @@ import {
 } from "./domain/dictionary.js";
 import { contractDays, WEEKDAYS, todayDay, dayToIso, toDay, parts } from "./domain/schedule.js";
 import { Exporter, formMarked } from "./export.js";
-import {
-  PHASES, GROUP_LABEL, dutiesOf, stateOf, summaryOf, schoolYearOf, schoolYearRange, halfRange,
-} from "./domain/duties.js";
+import { statusOf } from "./domain/progress.js";
 import {
   cloneContract, rollForward, isAnnual, vendorBook, VENDOR_KEYS, shiftNameYears, shiftYears,
 } from "./domain/rollover.js";
@@ -29,9 +27,6 @@ let data = emptyData();
 let tab = "org";
 let selId = null;
 const checked = new Set(); // 출력 화면에서 고른 계약
-const openGroups = new Set(); // 펼쳐 둔 정기 점검 묶음 "계약id:묶음"
-let boardYear = null; // 진행 현황 일정표의 학년도
-let rep = null; // 반기 이행 현황표 { y, h }
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (ch) =>
@@ -333,8 +328,6 @@ const ICONS = {
   chart: `<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5" rx="1"/><rect x="12" y="8" width="3" height="9" rx="1"/><rect x="17" y="5" width="3" height="12" rx="1"/>`,
   copy: `<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`,
   forward: `<polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>`,
-  printer: `<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>`,
-  list: `<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>`,
 };
 const icon = (name, size = 20, cls = "sidenav-icon") =>
   `<svg class="${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -351,11 +344,9 @@ const NAV = [
 ];
 
 function renderNav() {
-  const late = lateCount();
   const item = (it) => {
-    const on = tab === it.id || (tab === "report" && it.id === "board");
-    const badge = it.id === "contracts" && data.contracts.length ? `<span class="sidenav-badge">${data.contracts.length}</span>`
-      : it.id === "board" && late ? `<span class="sidenav-badge is-late" title="기한이 지났는데 안 한 일">${late}</span>` : "";
+    const on = tab === it.id;
+    const badge = it.id === "contracts" && data.contracts.length ? `<span class="sidenav-badge">${data.contracts.length}</span>` : "";
     return `<button type="button" class="sidenav-item${on ? " is-active" : ""}" data-tab="${it.id}"${on ? ' aria-current="page"' : ""}>
       ${icon(it.icon)}<span>${it.label}</span>${badge}</button>`;
   };
@@ -381,9 +372,8 @@ const pageHead = (title, desc) =>
 function render() {
   renderNav();
   const v = $("#view");
-  v.className = "page" + ({ org: " is-mid", contracts: " is-wide", output: " is-wide", board: " is-wide", report: " is-wide" }[tab] || "");
+  v.className = "page" + ({ org: " is-mid", contracts: " is-wide", output: " is-wide", board: " is-wide" }[tab] || "");
   const body = tab === "board" ? viewBoard()
-    : tab === "report" ? viewReport()
     : tab === "org" ? viewOrg()
     : tab === "contracts" ? viewContracts()
     : tab === "output" ? viewOutput()
@@ -484,7 +474,7 @@ function viewHelp() {
     <div class="step"><div class="step-head"><span class="step-no">3</span>서식 출력</div>
       <p>계약을 고르고 버튼을 누르면 hwpx 파일이 내려받아집니다. 한글에서 열어 고치고 인쇄합니다.</p></div>
     <div class="step"><div class="step-head"><span class="step-no">4</span>진행 현황</div>
-      <p>계약마다 할 일(계획서 · 수준평가 · 점검표 · 협의체 · 순회 · 합동점검)이 날짜와 함께 나옵니다. 한 일에 체크하면 놓친 일과 이행률이 보입니다.</p></div>
+      <p>계약마다 시작 전 · 진행 중 · 완료와, 계약기간이 얼마나 지났는지(%)를 한눈에 봅니다. 따로 체크할 것은 없습니다.</p></div>
   </div>
   <section class="card">
     <h2 class="card-title">자주 묻는 것</h2>
@@ -500,9 +490,6 @@ function viewHelp() {
       <dd>같은 규칙을 옮겨 와 같은 서식이 나옵니다. 매크로 · 보안 설정이 필요 없습니다.</dd>
       <dt>내년에 같은 용역을 또 맺으면?</dt>
       <dd>[계약정보] → [다음 학년도로 이어가기]. 연간 계약을 골라 기간은 1년 뒤로, 계약명의 연도는 다음 해로 바꿔 한꺼번에 복사합니다. 한 건만이면 그 계약의 [이 계약 복사]를 누르세요.</dd>
-      <dt>할 일은 무엇을 기준으로 나오나요?</dt>
-      <dd>경기도교육청 「도급 · 용역 · 위탁 사업 안전 · 보건 확보 방안」(2024.4.)의 단계입니다. 모든 도급에 작업 전 점검표, 2일 이상이면 계획서와 수준평가(작업유형에 따라 A · B · C 등급),
-        30일 이상이면 매월 협의체, 7일 이상이면 매주 순회점검, 90일 이상이면 분기마다 합동점검. 서식 출력의 ○ 판정과 같은 기준입니다.</dd>
       <dt>여러 서식을 한 번에 받으면?</dt>
       <dd>zip 파일 하나로 묶여 내려받아집니다. 순회점검표 · 협의체 회의록처럼 회차가 있는 서식은 한 파일 안에 회차별 쪽으로 들어갑니다.</dd>
     </dl>
@@ -822,12 +809,10 @@ function viewContracts() {
   const list = data.contracts.map((c, i) => {
     const p = prog[i];
     const days = contractDays(c);
-    const s = summaryOf(c, tday);
+    const st = statusOf(c, tday);
     return `<li><button data-sel="${c.id}" class="${p} ${c.id === selId ? "sel" : ""}">
       <span class="nm">${i + 1}. ${esc(c.계약명 || "(계약명 없음)")}</span>
-      <span class="meta">${esc(c.시작일 || "")} ~ ${esc(c.종료일 || "")}${days ? ` · ${days}일` : ""}${p ? ` · ${p}` : ""}</span>
-      ${s.all ? `<span class="mini-prog"><i style="width:${Math.round((s.doneAll / s.all) * 100)}%"></i></span>
-        <span class="meta">할 일 ${s.doneAll}/${s.all}${s.late ? ` · <b class="late-txt">놓친 일 ${s.late}</b>` : ""}</span>` : ""}
+      <span class="meta">${esc(c.시작일 || "")} ~ ${esc(c.종료일 || "")}${days ? ` · ${days}일` : ""}${st.state ? ` · ${st.state}${st.state === "진행" ? ` ${st.pct}%` : ""}` : ""}</span>
     </button></li>`;
   }).join("");
 
@@ -916,7 +901,6 @@ function viewContractForm(c) {
       <button class="btn btn-outline btn-sm" data-act="reauto">자동 판정으로 되돌리기</button></div>
     <p class="legend"><i style="background:var(--auto)"></i>자동으로 채운 값 <i style="background:var(--manual)"></i>직접 정한 값(자동 판정이 건드리지 않음)</p>
   </section>
-  ${checklistCard(c)}
   <section class="card">
     <div class="toolbar" style="margin:0">
       <button class="btn btn-primary" data-act="to-output">이 계약 서식 출력하러 가기 →</button>
@@ -946,274 +930,47 @@ function vendorFill(c) {
   return got.length > 0;
 }
 
-// ---------------------------------------------------------------- 할 일 (계약 하나)
-const WD = ["일", "월", "화", "수", "목", "금", "토"];
-function fmtDue(day, today) {
-  if (day == null) return "";
-  const p = parts(day), t = parts(today);
-  return `${p.y !== t.y ? `${String(p.y).slice(2)}.` : ""}${p.m}.${p.d}.(${WD[p.wd]})`;
-}
-function whenLabel(day, today, st) {
-  if (day == null) return "";
-  if (st === "done") return fmtDue(day, today);
-  const n = day - today;
-  const rel = n < 0 ? `${-n}일 지남` : n === 0 ? "오늘" : `D-${n}`;
-  return `${fmtDue(day, today)} · ${rel}`;
-}
-const ST_LABEL = { done: "함", late: "놓침", soon: "곧", later: "예정", none: "" };
-
-function checklistCard(c) {
-  const today = todayDay();
-  const s = summaryOf(c, today);
-  if (!s.all) {
-    return `<section class="card">${cardHead("list", "진행 사항", "계약명과 계약기간(시작일 · 종료일)을 넣으면 이 계약에 할 일이 차례로 나옵니다.")}</section>`;
-  }
-  const pct = Math.round((s.doneAll / s.all) * 100);
-  const row = (d) => {
-    const st = stateOf(c, d, today);
-    return `<li class="ck ${st}">
-      <label><input type="checkbox" data-done="${c.id}|${esc(d.key)}" ${st === "done" ? "checked" : ""}/>
-        <span class="ck-txt"><b>${esc(d.title)}</b>${d.sub ? `<small>${esc(d.sub)}</small>` : ""}</span></label>
-      <span class="when ${st}">${whenLabel(d.due, today, st)}${st === "done" ? ` <small>✓ ${esc(c.done[d.key])}</small>` : ""}</span>
-      ${d.form ? `<span class="form-no" title="서식 ${d.form}번 ${esc(FORMS[d.form].title)}">서식 ${d.form}</span>` : `<span></span>`}
-    </li>`;
-  };
-  const group = (g, items) => {
-    const sts = items.map((d) => stateOf(c, d, today));
-    const nDone = sts.filter((x) => x === "done").length, nLate = sts.filter((x) => x === "late").length;
-    const gid = `${c.id}:${g}`;
-    const chips = items.map((d, i) => `<label class="dchip ${sts[i]}" title="${esc(d.title)}">
-      <input type="checkbox" data-done="${c.id}|${esc(d.key)}" ${sts[i] === "done" ? "checked" : ""}/>${fmtDue(d.due, today)}</label>`).join("");
-    return `<li class="ck-group"><details data-group="${gid}"${openGroups.has(gid) ? " open" : ""}>
-      <summary><span class="ck-txt"><b>${GROUP_LABEL[g]}</b>
-        <small>${nDone}/${items.length}회 함${nLate ? ` · <b class="late-txt">놓친 회차 ${nLate}</b>` : ""} · 서식 ${items[0].form}</small></span>
-        <span class="mini-prog"><i style="width:${Math.round((nDone / items.length) * 100)}%"></i></span></summary>
-      <div class="dchips">${chips}</div>
-      <div class="toolbar" style="margin:10px 0 0">
-        ${nLate ? `<button class="btn btn-sm btn-outline" data-doneall="${c.id}|${g}|late">지난 회차 ${nLate}개 모두 했음</button>` : ""}
-        ${nDone ? `<button class="btn btn-sm btn-outline" data-doneall="${c.id}|${g}|clear">체크 모두 지우기</button>` : ""}
-      </div></details></li>`;
-  };
-  const phases = PHASES.map((ph) => {
-    const items = s.list.filter((d) => d.phase === ph.id);
-    if (!items.length) return "";
-    const singles = items.filter((d) => !d.group).map(row).join("");
-    const groups = [...new Set(items.filter((d) => d.group).map((d) => d.group))]
-      .map((g) => group(g, items.filter((d) => d.group === g))).join("");
-    return `<h3 class="ck-phase">${ph.label}</h3><ul class="cklist">${singles}${groups}</ul>`;
-  }).join("");
-  return `<section class="card">
-    ${cardHead("list", "진행 사항", `한 일에 체크해 두세요. 체크한 날이 함께 남습니다. 기한이 지난 일은 <b class="late-txt">빨갛게</b> 보입니다.`)}
-    <div class="prog-line"><span class="prog-bar"><i style="width:${pct}%"></i></span>
-      <span><b>${s.doneAll}</b>/${s.all} 함 (${pct}%)${s.late ? ` · <b class="late-txt">놓친 일 ${s.late}</b>` : ""}${s.soon ? ` · 7일 안에 ${s.soon}` : ""}</span></div>
-    ${phases}
-    <p class="legend">기간 · 작업유형이 바뀌면 할 일도 다시 계산됩니다. 변경계약으로 기간 · 금액이 바뀌면 계획서 · 수준평가 · 점검표를 바뀐 내용으로 다시 받으세요.</p>
-  </section>`;
-}
-
-function lateCount() {
-  const today = todayDay();
-  return data.contracts.reduce((n, c) => n + summaryOf(c, today).late, 0);
-}
-
-function setDone(cid, key, on) {
-  const c = cById(cid);
-  if (!c) return;
-  c.done ||= {};
-  if (on) c.done[key] = todayIso(); else delete c.done[key];
-}
-
 // ---------------------------------------------------------------- ⓪ 진행 현황
+// 계약기간으로만 본다 ― 체크할 것이 없다. 예정 · 진행 · 완료와 기간이 얼마나 지났는지(%)
+const fmtMD = (iso) => { const d = toDay(iso); if (d == null) return ""; const p = parts(d); return `${p.y}.${p.m}.${p.d}.`; };
+
 function viewBoard() {
-  const head = pageHead("진행 현황", "계약마다 <b>지금 해야 할 일</b>과 놓친 일을 모았습니다. 체크하면 바로 저장됩니다.");
+  const head = pageHead("진행 현황", "계약기간을 기준으로 <b>오늘 어디쯤인지</b> 보여 줍니다. 따로 체크할 것은 없습니다.");
   if (!data.contracts.length) {
-    return head + `<section class="card"><p class="empty-note">[계약정보]에서 계약을 넣으면 할 일이 여기에 모입니다.</p></section>`;
+    return head + `<section class="card"><p class="empty-note">[계약정보]에서 계약을 넣으면 여기에 모입니다.</p></section>`;
   }
   const today = todayDay();
-  const sums = new Map(data.contracts.map((c) => [c.id, summaryOf(c, today)]));
-  const items = data.contracts.flatMap((c) => sums.get(c.id).list.map((d) => ({ c, d, st: stateOf(c, d, today) })));
-  const tot = [...sums.values()].reduce((a, s) => ({ due: a.due + s.due, done: a.done + s.done }), { due: 0, done: 0 });
-  const rate = tot.due ? Math.round((tot.done / tot.due) * 100) : null;
-  const nLate = items.filter((x) => x.st === "late").length;
-  const nSoon = items.filter((x) => x.st === "soon").length;
-  const nLive = data.contracts.filter((c) => progressOf(c, dayToIso(today)) === "진행").length;
+  const rows = data.contracts.map((c, i) => ({ c, i, st: statusOf(c, today) }));
+  const n = (k) => rows.filter((r) => r.st.state === k).length;
+  const nNone = rows.filter((r) => !r.st.state).length;
+  const order = { 진행: 0, 예정: 1, 완료: 2, "": 3 };
+  rows.sort((a, b) => order[a.st.state] - order[b.st.state]
+    || (a.st.state === "완료" ? String(b.c.종료일).localeCompare(String(a.c.종료일)) : String(a.c.종료일).localeCompare(String(b.c.종료일))));
 
-  const kpi = `<div class="kpis">
-    <div class="kpi"><span>진행 중인 계약</span><b>${nLive}<small>건</small></b><em>전체 ${data.contracts.length}건</em></div>
-    <div class="kpi ${nLate ? "is-late" : "is-ok"}"><span>놓친 일</span><b>${nLate}<small>개</small></b><em>${nLate ? "기한이 지났는데 체크 안 됨" : "없습니다"}</em></div>
-    <div class="kpi ${nSoon ? "is-soon" : ""}"><span>7일 안에 할 일</span><b>${nSoon}<small>개</small></b><em>오늘부터 일주일</em></div>
-    <div class="kpi"><span>이행률</span>
-      <b>${rate == null ? "—" : rate}<small>${rate == null ? "" : "%"}</small></b>
-      <em>${tot.due ? `오늘까지 할 일 ${tot.due}개 중 ${tot.done}개` : "아직 기한이 온 일이 없습니다"}</em>
-      ${rate == null ? "" : `<span class="prog-bar"><i style="width:${rate}%"></i></span>`}</div>
+  const tile = (label, num, cls, sub) =>
+    `<div class="kpi ${cls}"><span>${label}</span><b>${num}<small>건</small></b>${sub ? `<em>${sub}</em>` : ""}</div>`;
+  const kpi = `<div class="kpis is-3">
+    ${tile("진행 중", n("진행"), "is-live", "")}
+    ${tile("시작 전", n("예정"), "", "")}
+    ${tile("완료", n("완료"), "is-ok", nNone ? `기간 없는 계약 ${nNone}건 따로` : "")}
   </div>`;
 
-  // 놓친 일 ― 계약마다 정기 점검은 묶음별로, 계약 · 착공 전 서류는 2개 넘으면 한 줄로 접는다
-  const late = items.filter((x) => x.st === "late").sort((a, b) => a.d.due - b.d.due);
-  const fold = new Map();
-  for (const x of late) {
-    const k = `${x.c.id}|${x.d.group || "_start"}`;
-    if (!fold.has(k)) fold.set(k, []);
-    fold.get(k).push(x);
-  }
-  const lateRows = [...fold].sort((a, b) => a[1][0].d.due - b[1][0].d.due).flatMap(([k, xs]) => {
-    const { c, d } = xs[0];
-    const g = d.group || "_start";
-    if (g === "_start" && xs.length < 3) return xs.map((x) => todoRow(x, today));
-    const last = xs[xs.length - 1].d.due;
-    const title = g === "_start"
-      ? `서류 · 확인 ${xs.length}개 체크 안 됨`
-      : `${GROUP_LABEL[g]} — ${xs.length}회 체크 안 됨`;
-    const what = g === "_start"
-      ? xs.map((x) => x.d.title.replace(/ — .*$/, "").replace(/ 받기$/, "")).join(" · ")
-      : `${fmtDue(d.due, today)}${xs.length > 1 ? ` ~ ${fmtDue(last, today)}` : ""}`;
-    return [`<li class="todo late">
-      <span class="todo-ic">!</span>
-      <div class="todo-main"><b>${esc(title)}</b>
-        <span class="todo-c">${esc(c.계약명)} · ${esc(what)}</span></div>
-      <span class="when late">${today - last}일 지남</span>
-      <span class="todo-btns"><button class="btn btn-sm btn-outline" data-doneall="${c.id}|${g}|late">모두 했음</button>
-        <button class="btn btn-sm btn-outline" data-open="${c.id}">보기</button></span></li>`];
-  });
-  const lateHtml = lateRows.join("");
-
-  const soon = items.filter((x) => x.st === "soon").sort((a, b) => a.d.due - b.d.due);
-  const next = items.filter((x) => x.st === "later" && x.d.due <= today + 30).sort((a, b) => a.d.due - b.d.due);
-
-  const section = (title, cls, body, n, empty) => `
-    <div class="todo-sec ${cls}"><h3>${title} <span class="cnt">${n}</span></h3>
-      ${n ? `<ul class="todos">${body}</ul>` : `<p class="todo-empty">${empty}</p>`}</div>`;
+  const list = rows.map(({ c, i, st }) => {
+    const left = st.state === "진행" ? (st.left === 0 ? "오늘 끝남" : `${st.left}일 남음`)
+      : st.state === "예정" ? `${st.left}일 뒤 시작` : st.state === "완료" ? "끝남" : "기간을 넣어 주세요";
+    return `<li><button class="prow ${st.state ? "is-" + st.state : "is-none"}" data-open="${c.id}">
+      <span class="ptag">${st.state || "—"}</span>
+      <span class="pmain"><b>${i + 1}. ${esc(c.계약명 || "(계약명 없음)")}</b>
+        <small>${c.시작일 ? `${fmtMD(c.시작일)} ~ ${fmtMD(c.종료일)}` : ""}${c.업체명 ? ` · ${esc(c.업체명)}` : ""}</small></span>
+      <span class="pbar">${st.pct == null ? "" : `<span class="prog-bar"><i style="width:${st.pct}%"></i></span><b>${st.pct}%</b>`}</span>
+      <span class="pleft">${left}</span>
+    </button></li>`;
+  }).join("");
 
   return head + kpi + `
   <section class="card">
-    ${cardHead("list", "할 일", "체크하면 그 계약의 [진행 사항]에도 똑같이 표시됩니다.")}
-    ${section("놓친 일", "is-late", lateHtml, lateRows.length, "놓친 일이 없습니다.")}
-    ${section("7일 안에", "is-soon", soon.map((x) => todoRow(x, today)).join(""), soon.length, "이번 주에 기한이 오는 일이 없습니다.")}
-    <details class="todo-sec"${next.length && !soon.length && !lateRows.length ? " open" : ""}>
-      <summary><h3>다음 30일 <span class="cnt">${next.length}</span></h3></summary>
-      ${next.length ? `<ul class="todos">${next.map((x) => todoRow(x, today)).join("")}</ul>` : `<p class="todo-empty">없습니다.</p>`}
-    </details>
-  </section>
-  ${timelineCard(today, sums)}
-  <section class="card">
-    ${cardHead("printer", "반기 이행 현황표", "중대재해처벌법 시행령 §4 9호의 <b>반기 1회 이상 점검</b> 기록으로 쓸 수 있게, 반기 동안 할 일과 한 일을 계약별 표로 뽑아 인쇄합니다.")}
-    <button class="btn btn-primary" data-act="report">${icon("printer", 18, "")}반기 이행 현황표 만들기</button>
-  </section>`;
-}
-
-function todoRow({ c, d, st }, today) {
-  return `<li class="todo ${st}">
-    <label class="todo-check"><input type="checkbox" data-done="${c.id}|${esc(d.key)}" ${st === "done" ? "checked" : ""} aria-label="${esc(d.title)} 했음"/></label>
-    <div class="todo-main"><b>${esc(d.title)}</b><span class="todo-c">${esc(c.계약명)}</span></div>
-    <span class="when ${st}">${whenLabel(d.due, today, st)}</span>
-    <span class="todo-btns">${d.form ? `<button class="btn btn-sm btn-outline" data-act="to-output" data-cid="${c.id}" title="서식 ${d.form}번 ${esc(FORMS[d.form].title)}">서식 ${d.form}</button>` : ""}
-      <button class="btn btn-sm btn-outline" data-open="${c.id}">보기</button></span>
-  </li>`;
-}
-
-// 학년도 일정표 ― 계약 기간 막대 + 할 일 날짜 점
-const ST_RANK = { late: 4, soon: 3, later: 2, done: 1, none: 0 };
-function timelineCard(today, sums) {
-  const y = boardYear ?? schoolYearOf(today);
-  const { from, to } = schoolYearRange(y);
-  const span = to - from + 1;
-  const pct = (d) => (((Math.min(Math.max(d, from), to + 1) - from) / span) * 100).toFixed(3);
-  const months = Array.from({ length: 12 }, (_, i) => {
-    const m = ((i + 2) % 12) + 1, yy = m >= 3 ? y : y + 1;
-    return { m, at: pct(toDay(`${yy}-${String(m).padStart(2, "0")}-01`)) };
-  });
-  const undated = data.contracts.filter((c) => !contractDays(c)).length;
-  const rows = data.contracts.map((c, i) => {
-    const s = toDay(c.시작일), e = toDay(c.종료일);
-    if (s == null || e == null || e < s || e < from || s > to) return "";
-    const sum = sums.get(c.id);
-    const byDay = new Map();
-    for (const d of sum.list) {
-      if (d.due == null || d.due < from || d.due > to) continue;
-      const st = stateOf(c, d, today);
-      const prev = byDay.get(d.due);
-      if (!prev || ST_RANK[st] > ST_RANK[prev.st]) byDay.set(d.due, { st, n: (prev?.n || 0) + 1, t: d.title });
-      else prev.n++;
-    }
-    const dots = [...byDay].map(([day, v]) =>
-      `<i class="dot ${v.st}" style="left:${pct(day)}%" title="${fmtDue(day, today)} ${esc(v.t)}${v.n > 1 ? ` 외 ${v.n - 1}건` : ""} — ${ST_LABEL[v.st]}"></i>`).join("");
-    const p = progressOf(c, dayToIso(today));
-    return `<div class="tl-row">
-      <button class="tl-label" data-open="${c.id}" title="${esc(c.계약명)}">
-        <span class="nm">${i + 1}. ${esc(c.계약명)}</span>
-        <span class="rate">${sum.rate == null ? "기한 전" : `이행 ${sum.rate}%`}${sum.late ? ` · <b class="late-txt">놓침 ${sum.late}</b>` : ""}</span></button>
-      <div class="tl-track"><span class="tl-bar ${p}" style="left:${pct(s)}%;width:${(pct(e + 1) - pct(s)).toFixed(3)}%"></span>${dots}</div>
-    </div>`;
-  }).filter(Boolean).join("");
-  const todayLine = today >= from && today <= to ? `<span class="tl-today" style="left:${pct(today)}%"><em>오늘</em></span>` : "";
-  return `<section class="card">
-    <div class="card-head tl-head">
-      <span class="card-icon">${icon("chart", 20, "")}</span>
-      <div><h2>학년도 일정표</h2><p class="hint">막대는 계약기간, 점은 할 일입니다. 계약 이름을 누르면 그 계약으로 갑니다.</p></div>
-      <div class="year-nav"><button class="btn btn-sm btn-outline" data-act="year-prev" aria-label="이전 학년도">‹</button>
-        <b>${y}학년도</b><button class="btn btn-sm btn-outline" data-act="year-next" aria-label="다음 학년도">›</button></div>
-    </div>
-    ${rows ? `<div class="tl">
-      <div class="tl-row tl-axis"><span class="tl-label"></span><div class="tl-track">${months.map((m) => `<span class="tl-m" style="left:${m.at}%">${m.m}월</span>`).join("")}</div></div>
-      <div class="tl-body">${rows}<div class="tl-overlay">${todayLine}</div></div>
-    </div>
-    <p class="legend"><i class="lg done"></i>함 <i class="lg late"></i>놓침 <i class="lg soon"></i>7일 안 <i class="lg later"></i>예정${undated ? ` · 기간이 비어 있는 계약 ${undated}건은 빠졌습니다` : ""}</p>`
-    : `<p class="empty-note">${y}학년도(${y}.3.~${y + 1}.2.)에 걸친 계약이 없습니다.</p>`}
-  </section>`;
-}
-
-// ---------------------------------------------------------------- 반기 이행 현황표 (인쇄용)
-function viewReport() {
-  const today = todayDay();
-  if (!rep) { const p = parts(today); rep = { y: p.y, h: p.m <= 6 ? 1 : 2 }; }
-  const { y, h } = rep;
-  const { from, to } = halfRange(y, h);
-  const until = Math.min(to, today);
-  const halfName = `${y}년 ${h === 1 ? "상반기(1~6월)" : "하반기(7~12월)"}`;
-  const rows = data.contracts.filter((c) => {
-    const s = toDay(c.시작일), e = toDay(c.종료일);
-    return s != null && e != null && e >= from && s <= to && String(c.계약명 || "").trim();
-  }).map((c, i) => {
-    const list = dutiesOf(c).filter((d) => d.due != null && d.due >= from && d.due <= until);
-    const done = list.filter((d) => c.done?.[d.key]);
-    const miss = list.filter((d) => !c.done?.[d.key]);
-    const missTxt = [
-      ...miss.filter((d) => !d.group).map((d) => d.title.replace(/ — .*$/, "").replace(/ 받기$/, "")),
-      ...Object.keys(GROUP_LABEL).map((g) => {
-        const n = miss.filter((d) => d.group === g).length;
-        return n ? `${GROUP_LABEL[g].replace(/ \(.*\)$/, "")} ${n}회` : "";
-      }).filter(Boolean),
-    ];
-    const r = list.length ? Math.round((done.length / list.length) * 100) : null;
-    return `<tr><td>${i + 1}</td><td class="l">${esc(c.계약명)}</td><td class="l">${esc(c.업체명 || "")}</td>
-      <td>${esc(c.시작일)}<br>~ ${esc(c.종료일)}</td><td>${list.length}</td><td>${done.length}</td>
-      <td>${r == null ? "—" : r + "%"}</td><td class="l">${miss.length ? esc(missTxt.join(", ")) : "없음"}</td><td></td></tr>`;
-  });
-  const s = data.sign;
-  const signBox = [s.담당자직위, s.관리자직위, s.부서장직위].map((p) => `<td><span>${esc(p || "")}</span></td>`).join("");
-  return `<div class="no-print">${pageHead("반기 이행 현황표", "도급 · 용역 · 위탁 계약마다 그 반기에 할 일과 한 일을 모았습니다. [인쇄]를 누르면 이 표만 인쇄됩니다(PDF 로 저장도 됩니다).")}
-    <div class="toolbar">
-      <button class="btn btn-outline" data-act="board">← 진행 현황</button>
-      <button class="btn btn-outline" data-act="half-prev" aria-label="이전 반기">‹</button>
-      <b class="half-now">${halfName}</b>
-      <button class="btn btn-outline" data-act="half-next" aria-label="다음 반기">›</button>
-      <button class="btn btn-primary" data-act="print">${icon("printer", 18, "")}인쇄</button>
-    </div>
-    ${until < to && today >= from ? `<div class="alert is-info">이 반기가 아직 끝나지 않아 <b>오늘(${dayToIso(today)})까지</b> 기한이 온 일만 셉니다.</div>` : ""}
-    ${today < from ? `<div class="alert is-warn">아직 오지 않은 반기입니다.</div>` : ""}
-  </div>
-  <section class="card report">
-    <div class="rep-top">
-      <div><h2 class="rep-title">${y}년 ${h === 1 ? "상반기" : "하반기"} 도급 · 용역 · 위탁 안전 · 보건 확보 이행 점검표</h2>
-        <p class="rep-meta">${esc(data.org.기관명 || "")} · 점검 기간 ${dayToIso(from)} ~ ${dayToIso(until < from ? to : until)} · 작성일 ${todayIso()}</p></div>
-      <table class="sign"><tr><th rowspan="2">결<br>재</th>${signBox}</tr><tr><td></td><td></td><td></td></tr></table>
-    </div>
-    ${rows.length ? `<div class="table-wrap"><table class="out rep">
-      <thead><tr><th>연번</th><th>계약명</th><th>업체</th><th>계약기간</th><th>할 일</th><th>한 일</th><th>이행률</th><th>안 한 일</th><th>조치 사항</th></tr></thead>
-      <tbody>${rows.join("")}</tbody></table></div>`
-    : `<p class="empty-note">이 반기에 걸친 계약이 없습니다.</p>`}
-    <p class="legend">근거: 중대재해 처벌 등에 관한 법률 시행령 §4 9호(도급 · 용역 · 위탁 시 안전 · 보건 확보 기준 · 절차, 반기 1회 이상 점검),
-      경기도교육청 「중대산업재해 예방을 위한 도급 · 용역 · 위탁 사업 안전 · 보건 확보 방안」(2024.4.). 할 일은 이 프로그램에 체크한 기록으로 셉니다.</p>
+    ${cardHead("chart", "계약별 진행", "막대는 계약기간 중 지난 만큼입니다. 누르면 그 계약으로 갑니다. 실제와 다르면 계약 화면의 [비고]에서 진행 · 완료를 직접 고르세요.")}
+    <ul class="plist">${list}</ul>
   </section>`;
 }
 
@@ -1439,11 +1196,6 @@ view.addEventListener("change", (e) => {
     return;
   }
   if (t.id === "schoolRegion") { school.region = t.value; return; }
-  if (t.dataset.done) {
-    const i = t.dataset.done.indexOf("|");
-    setDone(t.dataset.done.slice(0, i), t.dataset.done.slice(i + 1), t.checked);
-    changed(); render(); return;
-  }
   if (t.dataset.path && t.tagName === "SELECT") {
     const [g, k] = t.dataset.path.split(".");
     const prev = data[g][k];
@@ -1511,15 +1263,6 @@ view.addEventListener("click", (e) => {
   }
   if (t.dataset.sel) { selId = t.dataset.sel; render(); return; }
   if (t.dataset.open) { selId = t.dataset.open; tab = "contracts"; render(); window.scrollTo({ top: 0 }); return; }
-  if (t.dataset.doneall) {
-    const [cid, g, how] = t.dataset.doneall.split("|");
-    const c = cById(cid), today = todayDay();
-    dutiesOf(c).filter((d) => (g === "_start" ? !d.group : d.group === g)).forEach((d) => {
-      if (how === "clear") setDone(cid, d.key, false);
-      else if (stateOf(c, d, today) === "late") setDone(cid, d.key, true);
-    });
-    changed(); render(); return;
-  }
   if (t.dataset.mark) {
     const [id, no] = t.dataset.mark.split(":");
     const c = cById(id);
@@ -1565,24 +1308,7 @@ view.addEventListener("click", (e) => {
     tab = "output"; render(); window.scrollTo({ top: 0 });
   } else if (act === "copy") copyContract();
   else if (act === "rollover") rollover();
-  else if (act === "year-prev" || act === "year-next") {
-    boardYear = (boardYear ?? schoolYearOf(todayDay())) + (act === "year-next" ? 1 : -1);
-    render();
-  } else if (act === "report") { tab = "report"; render(); window.scrollTo({ top: 0 }); }
-  else if (act === "board") { tab = "board"; render(); }
-  else if (act === "half-prev" || act === "half-next") {
-    const n = rep.y * 2 + (rep.h - 1) + (act === "half-next" ? 1 : -1);
-    rep = { y: Math.floor(n / 2), h: (n % 2) + 1 };
-    render();
-  } else if (act === "print") window.print();
 });
-
-// 정기 점검 묶음을 펼쳐 둔 채로 다시 그리게 기억한다(toggle 은 거품이 일지 않아 capture 로 받는다)
-view.addEventListener("toggle", (e) => {
-  const g = e.target.dataset?.group;
-  if (!g) return;
-  e.target.open ? openGroups.add(g) : openGroups.delete(g);
-}, true);
 
 // ---------------------------------------------------------------- 시작
 (async () => {
