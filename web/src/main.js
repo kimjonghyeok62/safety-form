@@ -19,7 +19,7 @@ import { contractDays, WEEKDAYS, todayDay, dayToIso, toDay, parts } from "./doma
 import { Exporter, formMarked } from "./export.js";
 import { statusOf } from "./domain/progress.js";
 import {
-  cloneContract, rollForward, isAnnual, vendorBook, VENDOR_KEYS, shiftNameYears, shiftYears,
+  cloneContract, rollForward, vendorBook, VENDOR_KEYS, shiftNameYears, shiftYears,
 } from "./domain/rollover.js";
 
 // ---------------------------------------------------------------- 상태
@@ -87,6 +87,7 @@ function changed() {
 
 function adopt(next) {
   data = next;
+  fixOrg(data);
   data.contracts.forEach((c) => { c.id ??= uid(); refreshAuto(c); });
   selId = null; checked.clear();
 }
@@ -108,6 +109,16 @@ const sync = createSync({
   backup: backupDownload,
   onState: () => showSaveState(),
 });
+
+// 머리띠 제목 옆 [기관명]
+function showOrgName() {
+  const el = $("#topOrg");
+  if (!el) return;
+  const nm = String(data.org.기관명 || "").trim();
+  el.hidden = !nm;
+  el.textContent = nm ? `[${nm}]` : "";
+  el.title = nm;
+}
 
 const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "";
 
@@ -241,6 +252,20 @@ async function fileConnect(how) {
   if (await sync.attach(t)) toast(`이제부터 고칠 때마다 '${handle.name}'에 자동 저장됩니다.`);
 }
 
+// 자동 저장 토글을 켤 때 ― 새 파일인지, 쓰던 파일인지
+async function fileOn() {
+  const how = await choose("파일 자동 저장 켜기",
+    `<p>고칠 때마다 저장할 파일을 고릅니다.</p>
+     <ul><li><b>새 파일 만들기</b> — 지금 입력한 내용을 새 파일에 저장합니다.</li>
+       <li><b>쓰던 파일 열기</b> — 다른 컴퓨터 · 지난번에 쓰던 저장 파일을 열어 이어 씁니다.</li></ul>`,
+    [
+      { label: "새 파일 만들기", value: "new", cls: "btn-primary" },
+      { label: "쓰던 파일 열기", value: "open" },
+      { label: "닫기", value: null },
+    ]);
+  if (how) fileConnect(how);
+}
+
 async function fileOff() {
   await clearLink();
   sync.detach();
@@ -366,8 +391,8 @@ for (const sel of ["#sidenav", "#topnav"]) {
   });
 }
 
-const pageHead = (title, desc) =>
-  `<div class="page-head"><h1 class="page-title">${title}</h1>${desc ? `<p class="page-desc">${desc}</p>` : ""}</div>`;
+const pageHead = (title, desc, actions = "") =>
+  `<div class="page-head${actions ? " has-actions" : ""}"><div><h1 class="page-title">${title}</h1>${desc ? `<p class="page-desc">${desc}</p>` : ""}</div>${actions ? `<div class="page-actions">${actions}</div>` : ""}</div>`;
 
 function render() {
   renderNav();
@@ -381,6 +406,15 @@ function render() {
     : viewHelp();
   v.innerHTML = `<div id="banner"></div>${body}`;
   showSaveState();
+  showOrgName();
+  if (tab === "contracts") {
+    filterList();
+    const on = v.querySelector(".clist button.sel");
+    const box = v.querySelector(".clist");
+    if (on && box && (on.offsetTop < box.scrollTop || on.offsetTop + on.offsetHeight > box.scrollTop + box.clientHeight)) {
+      box.scrollTop = on.offsetTop - box.clientHeight / 3;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- 저장 · 이어쓰기
@@ -423,42 +457,39 @@ function viewSaveBody() {
     </div>
   </section>`;
 
+  // 내 컴퓨터 파일 ― [파일로 저장] · [파일 불러오기] 와, 고칠 때마다 같은 파일에 덮어쓰는 자동 저장 토글
+  const b = data.backedUpAt ? sync.fmtWhen(data.backedUpAt) : "없음";
+  const can = linkSupported();
   const fileCard = `
   <section class="card save-card">
     <span class="save-icon">${icon("hdd", 24, "")}</span>
     <div class="body">
-      <div class="head"><h2 class="card-title">내 컴퓨터 파일에 자동 저장</h2></div>
-      ${f ? `<p style="margin:0 0 4px">저장 파일: <b>${esc(f.name)}</b></p>${stLine(f)}
-        <div class="toolbar" style="margin:0">
-          ${state === "prompt" || state === "error" ? `<button class="btn btn-primary" data-sync="reconnect">자동 저장 다시 켜기</button>` : ""}
-          <button class="btn btn-outline" data-sync="f-new">다른 파일로 바꾸기</button>
-          <button class="btn btn-outline" data-sync="f-off">자동 저장 끄기</button>
-        </div>`
-      : `<p class="hint" style="margin-bottom:6px">구글 로그인을 쓸 수 없을 때. 고칠 때마다 고른 파일에 바로 저장됩니다.
-          구글 드라이브 데스크톱 폴더(G:)나 USB 에 두면 다른 컴퓨터에서도 [있는 파일 열기]로 이어 쓸 수 있습니다.</p>
-        ${linkSupported()
-          ? `<div class="toolbar" style="margin:0">
-              <button class="btn btn-outline" data-sync="f-new">새 저장 파일 만들기</button>
-              <button class="btn btn-outline" data-sync="f-open">있는 파일 열기</button></div>`
-          : `<p class="hint">이 브라우저에서는 쓸 수 없습니다(크롬 · 엣지 · 웨일에서 됩니다).</p>`}`}
-    </div>
-  </section>`;
-
-  const b = data.backedUpAt ? sync.fmtWhen(data.backedUpAt) : "없음";
-  const backupCard = `
-  <section class="card save-card">
-    <span class="save-icon">${icon("save", 24, "")}</span>
-    <div class="body">
-      <div class="head"><h2 class="card-title">파일로 받아 두기 · 불러오기</h2></div>
-      <p class="hint" style="margin-bottom:10px">한 번씩 받아 두면 안심입니다. 다른 컴퓨터에서는 [파일 불러오기]로 엽니다. 마지막으로 받은 때: ${esc(b)}</p>
-      <div class="toolbar" style="margin:0">
-        <button class="btn btn-outline" data-sync="backup">내 정보 파일로 받기</button>
-        <label class="btn btn-outline">파일 불러오기<input id="fileImport" type="file" accept=".json,application/json" hidden /></label>
+      <div class="head"><h2 class="card-title">내 컴퓨터 파일에 저장 · 불러오기</h2></div>
+      <p class="hint" style="margin-bottom:10px">[파일로 저장]은 누를 때 한 번 받고, <b>자동 저장</b>을 켜면 고칠 때마다 같은 파일에 덮어씁니다.
+        구글 드라이브 폴더(G:)나 USB 에 두면 다른 컴퓨터에서 [파일 불러오기]로 엽니다.</p>
+      <div class="toolbar" style="margin:0 0 14px">
+        <button class="btn btn-outline" data-sync="backup">${icon("save", 18, "")}파일로 저장</button>
+        <label class="btn btn-outline">${icon("download", 18, "")}파일 불러오기<input id="fileImport" type="file" accept=".json,application/json" hidden /></label>
+        <span class="hint" style="margin:0;align-self:center">마지막으로 받은 때: ${esc(b)}</span>
+      </div>
+      <div class="auto-save">
+        <button type="button" class="switch" role="switch" aria-checked="${!!f}" data-sync="${f ? "f-off" : "f-on"}" ${can ? "" : "disabled"}>
+          <span class="switch-knob"></span></button>
+        <div>
+          <b>고칠 때마다 파일에 자동 저장</b>
+          ${f ? `<p style="margin:2px 0 4px">저장 파일: <b>${esc(f.name)}</b></p>${stLine(f)}
+            <div class="toolbar" style="margin:0">
+              ${state === "prompt" || state === "error" ? `<button class="btn btn-primary btn-sm" data-sync="reconnect">자동 저장 다시 켜기</button>` : ""}
+              <button class="btn btn-outline btn-sm" data-sync="f-new">다른 파일로 바꾸기</button>
+            </div>`
+          : `<p class="hint" style="margin:2px 0 0">${can ? (g ? "켜면 구글 계정 이어쓰기는 꺼집니다." : "켜면 저장할 파일을 고릅니다(새로 만들거나, 쓰던 파일을 열기).")
+              : "이 브라우저에서는 쓸 수 없습니다(크롬 · 엣지 · 웨일에서 됩니다). [파일로 저장]은 됩니다."}</p>`}
+        </div>
       </div>
     </div>
   </section>`;
 
-  return `<div id="savePage">${googleCard}${fileCard}${backupCard}
+  return `<div id="savePage">${googleCard}${fileCard}
     <div class="alert is-info">이 웹페이지에는 서버가 없습니다. 기관정보 · 계약정보는 이 컴퓨터와, 직접 고른 곳(내 구글 드라이브 · 내 파일)에만 저장됩니다.
       <a href="./privacy.html" target="_blank" rel="noopener">개인정보처리방침</a></div></div>`;
 }
@@ -488,8 +519,14 @@ function viewHelp() {
       <dd>서식 파일(hwpx)을 만드는 데는 필요 없습니다. 만든 파일을 열고 고치려면 한글(2018 이후) 또는 한컴독스가 필요합니다.</dd>
       <dt>엑셀판(xlsm)과 결과가 같나요?</dt>
       <dd>같은 규칙을 옮겨 와 같은 서식이 나옵니다. 매크로 · 보안 설정이 필요 없습니다.</dd>
+      <dt>계약을 하나씩 넣기 번거로우면?</dt>
+      <dd>[기관정보]에 고유번호를 넣고 [찾기]를 한 번 누른 뒤, [계약정보] → [나라장터에서 가져오기]. 우리 기관이 나라장터에 등록한 용역 · 공사 계약의 계약명 · 기간 · 금액 · 업체가 한꺼번에 들어갑니다. 학교장터(S2B) 계약은 나오지 않을 수 있습니다.</dd>
+      <dt>처음부터 새로 쓰려면?</dt>
+      <dd>[기관정보] 오른쪽 위 [기관정보 초기화], [계약정보] 목록의 [목록 초기화]. 잘못 눌렀으면 화면 위에 뜨는 [되살리기]로 되돌립니다.</dd>
       <dt>내년에 같은 용역을 또 맺으면?</dt>
-      <dd>[계약정보] → [다음 학년도로 이어가기]. 연간 계약을 골라 기간은 1년 뒤로, 계약명의 연도는 다음 해로 바꿔 한꺼번에 복사합니다. 한 건만이면 그 계약의 [이 계약 복사]를 누르세요.</dd>
+      <dd>[계약정보] 목록에서 계약 앞 칸을 체크하고 [복사하기] → [다음 학년도로 복사]. 기간은 1년 뒤로, 계약명의 연도는 다음 해로 바꿔 한꺼번에 복사합니다. 체크하지 않으면 지금 보는 계약 한 건을 복사합니다.</dd>
+      <dt>계약을 지우려면?</dt>
+      <dd>목록에서 지울 계약 앞 칸을 체크하고 [삭제]. 한 건이면 계약 화면 맨 아래 [이 계약 삭제]도 됩니다. 잘못 지웠으면 목록 위 [되살리기]로 원래 자리에 돌아옵니다.</dd>
       <dt>여러 서식을 한 번에 받으면?</dt>
       <dd>zip 파일 하나로 묶여 내려받아집니다. 순회점검표 · 협의체 회의록처럼 회차가 있는 서식은 한 파일 안에 회차별 쪽으로 들어갑니다.</dd>
     </dl>
@@ -537,7 +574,7 @@ function viewOrg() {
         <input data-path="org.기관명" value="${esc(nameVal)}" class="${nameVal.trim() ? "" : "empty"}" placeholder="○○초등학교" />
         <button type="button" class="btn btn-primary" data-act="school-find">${icon("search", 18, "")}찾기</button>
       </div>
-      ${schoolPanel() || `<small class="field-note">학교명을 넣고 [찾기]를 누르면 주소 · 대표전화 · 팩스번호가 채워집니다.</small>`}
+      ${schoolPanel() || `<small class="field-note">학교명을 넣고 [찾기]를 누르면 나이스에서 주소 · 대표전화 · 팩스번호를 채웁니다. 다른 학교를 고르면 고유번호는 비워집니다.</small>`}
     </div>`
     : field("org.기관명", "기관명", { ph: "○○교육지원청", span: 2 });
 
@@ -549,10 +586,13 @@ function viewOrg() {
         <input data-path="org.고유번호" value="${esc(noVal)}" class="${noVal.trim() ? "" : "empty"}" placeholder="000-00-00000" inputmode="numeric" />
         <button type="button" class="btn btn-primary" data-act="inst-find">${icon("search", 18, "")}찾기</button>
       </div>
-      ${instPanel() || `<small class="field-note">고유번호(사업자등록번호)를 넣고 [찾기]를 누르면 나라장터에서 ${isSchool ? "빈 칸을" : "기관명 · 주소 · 전화 · 팩스를"} 채웁니다.</small>`}
+      ${instPanel() || `<small class="field-note">고유번호(사업자등록번호)를 넣고 [찾기]를 누르면 나라장터에 등록된 기관명 · 주소 · 전화 · 팩스로 <b>모두 바꿉니다</b>.</small>`}
     </div>`;
 
-  return pageHead("기관정보", "처음 한 번만 채우면 됩니다. <b>노란 칸</b>이 아직 빈 칸입니다.") + welcome + `
+  const orgFilled = orgHasContent();
+  return pageHead("기관정보", "처음 한 번만 채우면 됩니다. <b>노란 칸</b>이 아직 빈 칸입니다.",
+    orgFilled ? `<button type="button" class="btn btn-outline btn-sm" data-act="org-reset">기관정보 초기화</button>` : "")
+    + trashBar("org") + welcome + `
   <section class="card">
     ${cardHead("building", "기관", "서식 머리 · 끝에 들어가는 우리 기관 정보입니다.")}
     ${seg}
@@ -672,16 +712,24 @@ async function schoolFind() {
   render();
 }
 
+// 고유번호가 어느 기관 것인지 적어 둔다(org.번호기관). 학교명으로 다른 학교를 고르면 옛 번호를 비우려고.
+const bare = (s) => String(s || "").replace(/\s+/g, "");
+
 function schoolPick(h) {
   const tel = (s) => (s || "").trim();
-  data.org.기관명 = h.SCHUL_NM;
-  data.org.주소 = [h.ORG_RDNMA, h.ORG_RDNDA].filter(Boolean).join(" ").trim();
-  if (tel(h.ORG_TELNO)) data.org.전화번호 = tel(h.ORG_TELNO);
-  if (tel(h.ORG_FAXNO)) data.org.팩스번호 = tel(h.ORG_FAXNO);
+  const o = data.org;
+  const hadNo = !!String(o.고유번호 || "").trim();
+  const other = hadNo && bare(o.번호기관) !== bare(h.SCHUL_NM);
+  if (other) { o.고유번호 = ""; o.기관코드 = ""; o.번호기관 = ""; }
+  o.기관명 = h.SCHUL_NM;
+  o.주소 = [h.ORG_RDNMA, h.ORG_RDNDA].filter(Boolean).join(" ").trim();
+  if (tel(h.ORG_TELNO)) o.전화번호 = tel(h.ORG_TELNO);
+  if (tel(h.ORG_FAXNO)) o.팩스번호 = tel(h.ORG_FAXNO);
   school = { region: school.region, busy: false, hits: null, msg: "" };
   changed(); render();
-  const noHint = String(data.org.고유번호 || "").trim() ? "" : "\n고유번호는 나이스에 없습니다. 고유번호 칸에 넣고 [찾기]로 확인할 수 있습니다.";
-  toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.${noHint}`);
+  const noHint = other ? "\n다른 학교라 옛 고유번호를 비웠습니다. 고유번호를 넣고 [찾기]를 눌러 주세요."
+    : String(o.고유번호 || "").trim() ? "" : "\n고유번호는 나이스에 없습니다. 고유번호 칸에 넣고 [찾기]로 확인할 수 있습니다.";
+  toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.${noHint}`, noHint ? 6000 : 3500);
 }
 
 // ---------------------------------------------------------------- 나라장터 찾기 (조달청 사용자정보 서비스)
@@ -725,18 +773,22 @@ async function instFind() {
   render();
 }
 
+// 번호는 기관 하나를 정확히 가리킨다 ― 나라장터에 값이 있는 칸은 모두 그 기관 것으로 바꾼다
 function instPick(h) {
-  const o = data.org, empty = (k) => !String(o[k] || "").trim();
+  const o = data.org;
   const nm = h.short || lastWord(h.name);
   const got = [];
-  if (nm && empty("기관명")) { o.기관명 = nm; got.push("기관명"); }
+  const put = (k, v, label) => { if (!v) return; if (String(o[k] || "").trim() !== v) got.push(label); o[k] = v; };
+  put("기관명", nm, "기관명");
   if (h.bizno) o.고유번호 = h.bizno;
-  if (h.addr && empty("주소")) { o.주소 = h.addr; got.push("주소"); }
-  if (h.tel && empty("전화번호")) { o.전화번호 = h.tel; got.push("대표전화"); }
-  if (h.fax && empty("팩스번호")) { o.팩스번호 = h.fax; got.push("팩스번호"); }
+  if (h.code) o.기관코드 = h.code;
+  o.번호기관 = o.기관명;
+  put("주소", h.addr, "주소");
+  put("전화번호", h.tel, "대표전화");
+  put("팩스번호", h.fax, "팩스번호");
   inst = { busy: false, hits: null, msg: "" };
   changed(); render();
-  toast(got.length ? `나라장터: ${nm} — ${filled(got)}를 채웠습니다.` : `나라장터: ${nm} — 확인했습니다(이미 채워진 칸은 그대로 두었습니다).`);
+  toast(got.length ? `나라장터: ${nm} — ${filled(got)}를 바꿨습니다.` : `나라장터: ${nm} — 확인했습니다(바뀐 칸 없음).`);
 }
 
 // 업체 사업자등록번호 → 업체명 · 대표자 · 주소 · 전화
@@ -780,7 +832,13 @@ function corpPick(h) {
 }
 
 // 기관구분을 바꾸면: 지금 값을 보관 → 비움 → 그 기관구분으로 적어 둔 값이 있으면 되살림
-const STASH_ORG = ["기관명", "고유번호", "주소", "전화번호", "팩스번호"];
+const STASH_ORG = ["기관명", "고유번호", "주소", "전화번호", "팩스번호", "기관코드", "번호기관"];
+
+// 예전 데이터: 고유번호가 어느 기관 것인지 적혀 있지 않으면 지금 기관명의 것으로 본다
+function fixOrg(d) {
+  const o = d.org;
+  if (String(o.고유번호 || "").trim() && !o.번호기관) o.번호기관 = o.기관명 || "";
+}
 const STASH_SIGN = ["담당자성명", "담당자전화", "관리자성명", "부서장성명", "대표자성명"];
 function switchOrgKind(prev, next) {
   data.stash ||= {};
@@ -795,35 +853,210 @@ function switchOrgKind(prev, next) {
   Object.assign(data.sign, { 담당자직위: a, 관리자직위: b, 부서장직위: c, 대표자직위: d });
 }
 
+// ---------------------------------------------------------------- 초기화 · 되살리기
+// 지운 것은 data.trash 에 한 벌만 둔다 ― 데이터와 함께 저장되어 새로 고침 · 다른 컴퓨터에서도 되살릴 수 있다.
+const ORG_GROUPS = ["org", "sign", "emerg"];
+const fmtWhenShort = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? "" : `${d.getMonth() + 1}월 ${d.getDate()}일 ${d.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}`;
+};
+
+function orgHasContent(d = data) {
+  const base = emptyData();
+  return ORG_GROUPS.some((g) => Object.entries(d[g] || {}).some(([k, v]) =>
+    k !== "기관구분" && !/직위$/.test(k) && String(v ?? "").trim() && v !== base[g][k]));
+}
+
+function trashBar(kind) {
+  const t = data.trash?.[kind];
+  if (!t) return "";
+  const what = kind === "org"
+    ? `기관정보${t.org?.기관명 ? `(${esc(t.org.기관명)})` : ""}`
+    : `계약 ${t.list.length}건`;
+  return `<div class="alert is-info alert-row"><span>${esc(fmtWhenShort(t.at))}에 ${t.why || "초기화"}한 <b>${what}</b>${kind === "org" ? "가" : "이"} 남아 있습니다.</span>
+    <span class="toolbar" style="margin:0">
+      <button type="button" class="btn btn-primary btn-sm" data-act="${kind === "org" ? "org" : "c"}-restore">되살리기</button>
+      <button type="button" class="btn btn-outline btn-sm" data-act="${kind === "org" ? "org" : "c"}-trash-drop">버리기</button></span></div>`;
+}
+
+async function resetOrg() {
+  const pick = await choose("기관정보를 초기화할까요?",
+    `<p><b>기관 · 결재선 · 비상연락망 정보가 모두 지워집니다.</b> 계약정보는 그대로 둡니다.</p>
+     <p class="hint">잘못 눌렀다면 초기화한 뒤 화면 위의 [되살리기]로 되돌릴 수 있습니다.</p>`,
+    [{ label: "초기화", value: "go", cls: "btn-danger" }, { label: "닫기", value: null }]);
+  if (pick !== "go") return;
+  data.trash ||= {};
+  data.trash.org = { at: new Date().toISOString(), ...structuredClone({ org: data.org, sign: data.sign, emerg: data.emerg, stash: data.stash || {} }) };
+  const kind = data.org.기관구분 || "학교";
+  const base = emptyData();
+  data.org = { ...base.org, 기관구분: kind };
+  data.sign = base.sign;
+  data.emerg = base.emerg;
+  data.stash = {};
+  const [a, b, c, d] = orgPositionDefaults(kind);
+  Object.assign(data.sign, { 담당자직위: a, 관리자직위: b, 부서장직위: c, 대표자직위: d });
+  school = { region: "", busy: false, hits: null, msg: "" };
+  inst = { busy: false, hits: null, msg: "" };
+  changed(); render();
+  toast("기관정보를 초기화했습니다. 되돌리려면 화면 위 [되살리기]를 누르세요.", 5000);
+}
+
+async function restoreOrg() {
+  const t = data.trash?.org;
+  if (!t) return;
+  if (orgHasContent()) {
+    const pick = await choose("지금 쓴 내용을 바꿀까요?",
+      `<p>초기화한 뒤 새로 넣은 기관정보가 있습니다. 되살리면 지금 칸의 내용은 <b>초기화 전 내용으로 바뀝니다</b>.</p>`,
+      [{ label: "되살리기", value: "go", cls: "btn-primary" }, { label: "닫기", value: null }]);
+    if (pick !== "go") return;
+  }
+  const base = emptyData();
+  data.org = { ...base.org, ...t.org };
+  data.sign = { ...base.sign, ...t.sign };
+  data.emerg = { ...base.emerg, ...t.emerg };
+  data.stash = t.stash || {};
+  delete data.trash.org;
+  changed(); render();
+  toast(`기관정보를 되살렸습니다${data.org.기관명 ? ` — ${data.org.기관명}` : ""}.`);
+}
+
+async function resetContracts() {
+  const n = data.contracts.length;
+  if (!n) return;
+  const pick = await choose("계약 목록을 초기화할까요?",
+    `<p><b>계약 ${n}건이 모두 지워집니다.</b> 기관정보는 그대로 둡니다.</p>
+     <p class="hint">잘못 눌렀다면 초기화한 뒤 목록 위의 [되살리기]로 되돌릴 수 있습니다.</p>`,
+    [{ label: `계약 ${n}건 초기화`, value: "go", cls: "btn-danger" }, { label: "닫기", value: null }]);
+  if (pick !== "go") return;
+  data.trash ||= {};
+  data.trash.contracts = { at: new Date().toISOString(), why: "초기화", list: structuredClone(data.contracts) };
+  data.contracts = [];
+  selId = null; checked.clear(); cPicked.clear();
+  changed(); render();
+  toast(`계약 ${n}건을 지웠습니다. 되돌리려면 목록 위 [되살리기]를 누르세요.`, 5000);
+}
+
+function restoreContracts() {
+  const t = data.trash?.contracts;
+  if (!t) return;
+  const have = new Set(data.contracts.map((c) => c.id));
+  const back = t.list.filter((c) => !have.has(c.id));
+  back.forEach(refreshAuto);
+  if (t.idx) {
+    // 골라 삭제한 것 ― 원래 있던 자리로(앞 번호부터 끼워 넣는다)
+    back.map((c) => [t.idx[t.list.indexOf(c)] ?? 0, c]).sort((a, b) => a[0] - b[0])
+      .forEach(([i, c]) => data.contracts.splice(Math.min(i, data.contracts.length), 0, c));
+  } else {
+    data.contracts = [...back, ...data.contracts]; // 초기화한 뒤 새로 넣은 계약은 그대로 뒤에 둔다
+  }
+  delete data.trash.contracts;
+  if (back[0]) selId = back[0].id;
+  changed(); render();
+  toast(`계약 ${back.length}건을 되살렸습니다.`);
+}
+
+function dropTrash(kind) {
+  if (!data.trash?.[kind]) return;
+  delete data.trash[kind];
+  changed(); render();
+  toast("지운 내용을 버렸습니다.");
+}
+
+// 골라 삭제 ― 휴지통에 넣어 [되살리기]로 원래 자리에 돌려놓을 수 있게
+async function deleteContracts(ids) {
+  const list = data.contracts.filter((c) => ids.includes(c.id));
+  if (!list.length) return;
+  const names = list.slice(0, 8).map((c) => `<li>${esc(c.계약명 || "(계약명 없음)")}</li>`).join("")
+    + (list.length > 8 ? `<li>… 외 ${list.length - 8}건</li>` : "");
+  const pick = await choose(`계약 ${list.length}건을 삭제할까요?`,
+    `<ul>${names}</ul><p class="hint">잘못 지웠다면 목록 위의 [되살리기]로 되돌릴 수 있습니다.</p>`,
+    [{ label: `${list.length}건 삭제`, value: "go", cls: "btn-danger" }, { label: "닫기", value: null }]);
+  if (pick !== "go") return;
+  const idx = list.map((c) => data.contracts.indexOf(c));
+  data.trash ||= {};
+  const prev = data.trash.contracts?.why === "삭제" ? data.trash.contracts : null; // 연달아 지우면 휴지통에 이어 담는다
+  data.trash.contracts = {
+    at: new Date().toISOString(), why: "삭제",
+    list: [...(prev?.list || []), ...structuredClone(list)],
+    idx: [...(prev?.idx || []), ...idx],
+  };
+  data.contracts = data.contracts.filter((c) => !ids.includes(c.id));
+  ids.forEach((id) => { checked.delete(id); cPicked.delete(id); });
+  if (ids.includes(selId)) selId = data.contracts[Math.min(idx[0], data.contracts.length - 1)]?.id ?? null;
+  changed(); keepScroll(render);
+  toast(`계약 ${list.length}건을 삭제했습니다. 되돌리려면 목록 위 [되살리기]를 누르세요.`, 5000);
+}
+
 // ---------------------------------------------------------------- ② 계약정보
 function cById(id) { return data.contracts.find((c) => c.id === id); }
+const cPicked = new Set(); // 목록에서 체크한 계약(복사 · 삭제용, 저장 안 함)
+
+// 목록 찾기 · 거르기(화면에서만, 저장하지 않음)
+let listQ = "";
+let listF = "";
+const listHit = (c) => {
+  const q = bare(listQ).toLowerCase();
+  return !q || bare(`${c.계약명 || ""}${c.업체명 || ""}`).toLowerCase().includes(q);
+};
+// 찾는 말은 칠 때마다 다시 그리지 않고 줄만 숨긴다(입력 칸 커서를 지키려고)
+function filterList() {
+  view.querySelectorAll(".clist li[data-cid]").forEach((li) => {
+    const c = cById(li.dataset.cid);
+    li.hidden = !c || !listHit(c);
+  });
+  const none = view.querySelector(".clist .no-hit");
+  if (none) none.hidden = !!view.querySelector(".clist li[data-cid]:not([hidden])");
+}
 
 function viewContracts() {
-  const today = todayIso();
-  const prog = data.contracts.map((c) => progressOf(c, today));
-  const n진행 = prog.filter((p) => p === "진행").length, n완료 = prog.filter((p) => p === "완료").length;
   const sel = cById(selId) || data.contracts[0];
   if (sel) selId = sel.id;
 
   const tday = todayDay();
-  const list = data.contracts.map((c, i) => {
-    const p = prog[i];
-    const days = contractDays(c);
-    const st = statusOf(c, tday);
-    return `<li><button data-sel="${c.id}" class="${p} ${c.id === selId ? "sel" : ""}">
-      <span class="nm">${i + 1}. ${esc(c.계약명 || "(계약명 없음)")}</span>
-      <span class="meta">${esc(c.시작일 || "")} ~ ${esc(c.종료일 || "")}${days ? ` · ${days}일` : ""}${st.state ? ` · ${st.state}${st.state === "진행" ? ` ${st.pct}%` : ""}` : ""}</span>
+  const rows = data.contracts.map((c, i) => ({ c, i, st: statusOf(c, tday) }));
+  const cnt = (k) => rows.filter((r) => (r.st.state || "") === k).length;
+  const pills = [["", "전체", rows.length], ["진행", "진행", cnt("진행")], ["예정", "시작 전", cnt("예정")], ["완료", "완료", cnt("완료")]]
+    .map(([k, label, n]) => `<button type="button" class="fpill${listF === k ? " is-on" : ""}" data-listf="${k}" aria-pressed="${listF === k}">${label} <b>${n}</b></button>`).join("");
+
+  const list = rows.filter((r) => !listF || r.st.state === listF).map(({ c, i, st }) => {
+    const pill = st.state === "진행" ? `<span class="spill is-진행">${st.pct}%</span>`
+      : st.state === "예정" ? `<span class="spill is-예정">예정</span>`
+      : st.state === "완료" ? `<span class="spill is-완료">완료</span>` : "";
+    const when = c.시작일 ? `${fmtMD(c.시작일)}~${fmtMD(c.종료일)}` : "기간 없음";
+    return `<li data-cid="${c.id}"${listHit(c) ? "" : " hidden"}${cPicked.has(c.id) ? ' class="is-picked"' : ""}>
+      <label class="cpick"><input type="checkbox" data-cpick="${c.id}" ${cPicked.has(c.id) ? "checked" : ""} aria-label="${esc((c.계약명 || "계약") + " 고르기")}"/></label>
+      <button data-sel="${c.id}" class="${st.state ? "is-" + st.state : ""}${c.id === selId ? " sel" : ""}"${c.id === selId ? ' aria-current="true"' : ""}>
+      <span class="nm"><span class="no">${i + 1}</span>${esc(c.계약명 || "(계약명 없음)")}</span>${pill}
+      <span class="meta">${esc([c.업체명, when].filter(Boolean).join(" · "))}</span>
     </button></li>`;
   }).join("");
 
-  return pageHead("계약정보", "계약명을 넣으면 <b>계약유형 · 작업유형 · 계획서 서식</b>이 자동으로 정해집니다.") + `
+  const has = data.contracts.length > 0;
+  [...cPicked].forEach((id) => { if (!cById(id)) cPicked.delete(id); });
+  const nPick = cPicked.size;
+  const pickBar = !has ? "" : nPick
+    ? `<div class="cpick-bar"><span><b>${nPick}건</b> 고름</span>
+        <button type="button" class="btn btn-outline btn-sm" data-act="c-copy">${icon("copy", 16, "")}복사하기</button>
+        <button type="button" class="btn btn-danger btn-sm" data-act="c-del">삭제</button>
+        <button type="button" class="link-btn" data-act="c-unpick">선택 해제</button></div>`
+    : "";
+  return pageHead("계약정보", "계약명을 넣으면 <b>계약유형 · 작업유형 · 계획서 서식</b>이 자동으로 정해집니다.") + trashBar("contracts") + `
   <div class="split">
-    <div class="col"><section class="card">
-      <h2>계약 목록</h2>
-      <p class="counts">진행 ${n진행}건 · 완료 ${n완료}건 · 총 ${data.contracts.length}건</p>
-      <div class="toolbar"><button class="btn btn-primary" data-act="add">+ 계약 추가</button>
-        ${data.contracts.length ? `<button class="btn btn-outline" data-act="rollover" title="연간 계약을 다음 학년도 것으로 한꺼번에 복사합니다">${icon("forward", 18, "")}다음 학년도로 이어가기</button>` : ""}</div>
-      <ul class="clist">${list || `<li class="empty-note">아직 계약이 없습니다.</li>`}</ul>
+    <div class="col"><section class="card clist-card">
+      <div class="clist-head"><h2>계약 목록</h2>
+        ${has ? `<button type="button" class="link-btn is-danger" data-act="c-reset">목록 초기화</button>` : ""}</div>
+      <div class="toolbar">
+        <button class="btn btn-primary" data-act="add">+ 계약 추가</button>
+        <button class="btn btn-outline" data-act="g2b-import" title="우리 기관이 나라장터에 등록한 계약을 찾아 넣습니다">${icon("search", 18, "")}나라장터에서 가져오기</button>
+        ${has ? `<button class="btn btn-outline btn-sm" data-act="c-copy" title="체크한 계약(없으면 지금 보는 계약)을 그대로 또는 다음 학년도로 복사합니다">${icon("copy", 16, "")}복사하기</button>` : ""}
+      </div>
+      ${has ? `<div class="clist-tools">
+        <div class="clist-search">
+          <label class="cpick cpick-all" title="보이는 계약 모두 고르기"><input type="checkbox" id="cpickAll" aria-label="보이는 계약 모두 고르기" ${nPick && nPick === data.contracts.length ? "checked" : ""}/></label>
+          <input type="search" id="listQ" value="${esc(listQ)}" placeholder="계약명 · 업체명으로 찾기" aria-label="계약 찾기" /></div>
+        <div class="fpills" role="group" aria-label="진행 상태로 거르기">${pills}</div></div>` : ""}
+      ${pickBar}
+      <ul class="clist">${list}${has ? `<li class="empty-note no-hit" hidden>맞는 계약이 없습니다.</li>` : `<li class="empty-note">아직 계약이 없습니다. [+ 계약 추가]나 [나라장터에서 가져오기]를 누르세요.</li>`}</ul>
     </section></div>
     <div class="col">${sel ? viewContractForm(sel) : `<section class="card"><p class="empty-note">왼쪽 [+ 계약 추가]를 누르세요.</p></section>`}</div>
   </div>`;
@@ -974,45 +1207,230 @@ function viewBoard() {
   </section>`;
 }
 
-// ---------------------------------------------------------------- 복사 · 다음 학년도로 이어가기
-function copyContract() {
-  const c = cById(selId);
-  if (!c) return;
-  const x = cloneContract(c, uid());
-  x.계약명 = `${c.계약명 || "새 계약"} (사본)`;
-  data.contracts.splice(data.contracts.indexOf(c) + 1, 0, x);
-  selId = x.id;
-  changed(); render();
-  toast("복사했습니다. 계약명 · 기간 · 금액을 고쳐 쓰세요.\n진행 사항 체크는 비워 두었습니다.");
-  view.querySelector('[data-cfield="계약명"]')?.select();
-}
-
-async function rollover() {
-  const names = new Set(data.contracts.map((c) => String(c.계약명 || "").trim()));
-  const cands = data.contracts.filter((c) => String(c.계약명 || "").trim());
-  if (!cands.length) { toast("계약명이 있는 계약이 없습니다."); return; }
-  const lis = cands.map((c) => {
-    const nextName = shiftNameYears(c.계약명, 1);
-    const dup = names.has(nextName.trim()) && nextName !== c.계약명;
-    return `<li><label class="roll-item${dup ? " is-dup" : ""}">
-      <input type="checkbox" data-roll="${c.id}" ${isAnnual(c) && !dup ? "checked" : ""} ${dup ? "disabled" : ""}/>
-      <span><b>${esc(nextName)}</b><small>${c.시작일 && c.종료일
-        ? `${esc(shiftYears(c.시작일, 1))} ~ ${esc(shiftYears(c.종료일, 1))}` : "기간 없음"}${isAnnual(c) ? " · 연간" : ""}${dup ? " · 이미 있습니다" : ""}</small></span></label></li>`;
-  }).join("");
-  const pick = await choose("다음 학년도로 이어가기",
-    `<p>고른 계약을 <b>1년 뒤 기간</b>으로 복사합니다. 계약명의 연도(예: 2026학년도 → 2027학년도)도 바꿉니다.
-      업체 · 금액 · 작업유형은 그대로 두고 진행 사항 체크는 비웁니다. 원래 계약은 그대로 남습니다.</p>
-     <p class="hint">기간이 300일 넘는 연간 계약을 미리 골라 두었습니다.</p>
-     <ul class="roll-list">${lis}</ul>`,
-    [{ label: "고른 계약 이어가기", value: "go", cls: "btn-primary" }, { label: "닫기", value: null }]);
-  if (pick !== "go") return;
-  const ids = [...$("#dlg").querySelectorAll("input[data-roll]:checked")].map((i) => i.dataset.roll);
-  if (!ids.length) { toast("고른 계약이 없습니다."); return; }
-  const made = ids.map((id) => refreshAuto(rollForward(cById(id), uid(), 1)));
-  data.contracts.push(...made);
+// ---------------------------------------------------------------- 복사하기 ― 그대로 · 다음 학년도로
+// ids 가 없으면 체크한 계약, 그것도 없으면 지금 보는 계약
+async function copyContracts(ids) {
+  ids = ids?.length ? ids : cPicked.size ? [...cPicked] : selId ? [selId] : [];
+  const list = data.contracts.filter((c) => ids.includes(c.id));
+  if (!list.length) { toast("복사할 계약을 체크해 주세요."); return; }
+  const names = new Set(data.contracts.map((c) => bare(c.계약명)));
+  const lis = list.slice(0, 10).map((c) => {
+    const next = shiftNameYears(c.계약명, 1);
+    return `<li><b>${esc(c.계약명 || "(계약명 없음)")}</b><br><small class="hint">다음 학년도로: ${esc(next || "(계약명 없음)")}${
+      c.시작일 ? ` · ${esc(fmtMD(shiftYears(c.시작일, 1)))} ~ ${esc(fmtMD(shiftYears(c.종료일, 1)))}` : ""}${
+      names.has(bare(next)) && next !== c.계약명 ? " · 이미 있음" : ""}</small></li>`;
+  }).join("") + (list.length > 10 ? `<li>… 외 ${list.length - 10}건</li>` : "");
+  const how = await choose(`계약 ${list.length}건 복사하기`,
+    `<ul>${lis}</ul>
+     <p><b>그대로 복사</b> — 계약명 뒤에 (사본)을 붙여 바로 아래에 만듭니다.<br>
+       <b>다음 학년도로 복사</b> — 기간은 1년 뒤로, 계약명의 연도(2026학년도 → 2027학년도)도 바꿉니다.</p>
+     <p class="hint">업체 · 금액 · 작업유형은 그대로 두고, 진행 · 완료 직접 고른 것만 비웁니다. 원래 계약은 그대로 남습니다.</p>`,
+    [
+      { label: "그대로 복사", value: "same", cls: "btn-primary" },
+      { label: "다음 학년도로 복사", value: "next", cls: "btn-primary" },
+      { label: "닫기", value: null },
+    ]);
+  if (!how) return;
+  let made;
+  if (how === "same") {
+    made = list.map((c) => {
+      const x = cloneContract(c, uid());
+      x.계약명 = `${c.계약명 || "새 계약"} (사본)`;
+      data.contracts.splice(data.contracts.indexOf(c) + 1, 0, x);
+      return x;
+    });
+  } else {
+    made = list.map((c) => refreshAuto(rollForward(c, uid(), 1)));
+    data.contracts.push(...made);
+  }
+  cPicked.clear();
   selId = made[0].id;
   changed(); render();
-  toast(`${made.length}건을 다음 학년도로 이어 만들었습니다.\n금액 · 업체 담당자가 바뀌었으면 고쳐 주세요.`, 6000);
+  toast(how === "same"
+    ? `${made.length}건을 복사했습니다. 계약명 · 기간 · 금액을 고쳐 쓰세요.`
+    : `${made.length}건을 다음 학년도로 복사해 목록 끝에 넣었습니다.\n금액 · 업체 담당자가 바뀌었으면 고쳐 주세요.`, 6000);
+  if (how === "same" && made.length === 1) view.querySelector('[data-cfield="계약명"]')?.select();
+}
+
+// ---------------------------------------------------------------- 나라장터에서 계약 가져오기 (조달청 계약정보서비스)
+function newContract(fields = {}) {
+  return refreshAuto({ id: uid(), 계약명: "", 시작일: "", 종료일: "", 점검요일: "", 계약금액: "",
+    업체명: "", 사업자번호: "", 업체주소: "", 업체대표: "", 대표자전화: "", 안전담당자: "", 담당자전화: "",
+    계획서유형: "", work: {}, 계약유형: { v: "", manual: false }, 비고: { v: "", manual: false }, formOverride: {},
+    ...fields });
+}
+
+const BIZ = [["servc", "용역", true], ["cnstwk", "공사", true], ["thng", "물품", false]];
+const BIZ_NAME = Object.fromEntries(BIZ.map(([k, n]) => [k, n]));
+const won = (v) => (v ? Number(v).toLocaleString("ko-KR") + "원" : "");
+const isoAdd = (iso, days) => dayToIso(toDay(iso) + days);
+
+// 이 기관의 나라장터 기관코드 ― 없으면 고유번호로 한 번 찾아 둔다
+async function orgCode() {
+  const o = data.org;
+  if (o.기관코드) return o.기관코드;
+  const no = bizDigits(o.고유번호);
+  if (no.length !== 10) return "";
+  const items = await g2b("inst", no);
+  const code = items[0]?.code || "";
+  if (code) { o.기관코드 = code; changed(); }
+  return code;
+}
+
+async function g2bImport() {
+  if (bizDigits(data.org.고유번호).length !== 10) {
+    const go = await choose("고유번호가 필요합니다",
+      `<p>나라장터는 기관을 <b>고유번호(사업자등록번호)</b>로 찾습니다.
+        [기관정보]에서 고유번호를 넣고 [찾기]를 한 번 눌러 주세요.</p>`,
+      [{ label: "기관정보로 가기", value: "go", cls: "btn-primary" }, { label: "닫기", value: null }]);
+    if (go) { tab = "org"; render(); window.scrollTo({ top: 0 }); }
+    return;
+  }
+  const today = todayIso();
+  const y = +today.slice(0, 4);
+  const dlg = $("#dlg");
+  if (dlg.open) dlg.close();
+  let found = [];
+  let stop = false;
+
+  const formHtml = `
+    <h2>나라장터에서 계약 가져오기</h2>
+    <div class="dlg-body">
+      <p><b>${esc(data.org.기관명 || "우리 기관")}</b>이 나라장터에 등록한 계약을 찾아 계약명 · 기간 · 금액 · 업체를 한꺼번에 넣습니다.</p>
+      <div class="imp-form">
+        <label class="field"><span>계약 체결일 — 부터</span><input type="date" id="impFrom" value="${y}-01-01" /></label>
+        <label class="field"><span>까지</span><input type="date" id="impTo" value="${today}" /></label>
+        <div class="field"><span>구분</span><div class="imp-biz">
+          ${BIZ.map(([k, n, on]) => `<label class="chip auto"><input type="checkbox" data-biz="${k}" ${on ? "checked" : ""}/> ${n}</label>`).join("")}
+        </div></div>
+      </div>
+      <p class="hint">나라장터에 등록된 계약만 나옵니다. 학교장터(S2B) · 소액 수의계약은 빠질 수 있습니다. 1년치는 30초쯤 걸립니다.</p>
+      <div id="impOut"></div>
+    </div>
+    <div class="dlg-btns" id="impBtns">
+      <button class="btn btn-primary" data-imp="find">${icon("search", 18, "")}찾기</button>
+      <button class="btn btn-outline" data-imp="close">닫기</button>
+    </div>`;
+  dlg.innerHTML = formHtml;
+  dlg.classList.add("is-wide");
+  const out = () => $("#impOut", dlg);
+  const btns = () => $("#impBtns", dlg);
+  const close = () => { stop = true; dlg.classList.remove("is-wide"); dlg.onclick = dlg.onchange = null; dlg.close(); };
+  dlg.oncancel = (e) => { e.preventDefault(); close(); };
+
+  const have = (it) => data.contracts.some((c) => (it.no && c.g2b === it.no)
+    || (bare(c.계약명) === bare(it.name) && (c.시작일 || "") === (it.start || "")));
+
+  const showResults = () => {
+    found.sort((a, b) => String(a.start || a.date).localeCompare(String(b.start || b.date)));
+    const nNew = found.filter((it) => !have(it)).length;
+    out().innerHTML = !found.length
+      ? `<p class="alert is-warn">이 기간에 나라장터에 등록된 계약이 없습니다. 기간 · 구분을 바꿔 보거나 직접 넣어 주세요.</p>`
+      : `<p class="imp-sum">${found.length}건 찾음 · 새로 넣을 수 있는 것 ${nNew}건
+           <label><input type="checkbox" id="impAll" ${nNew ? "checked" : ""}/> 모두 고르기</label></p>
+         <ul class="imp-list">${found.map((it, i) => {
+           const dup = have(it);
+           return `<li><label class="imp-item${dup ? " is-dup" : ""}">
+             <input type="checkbox" data-impi="${i}" ${dup ? "disabled" : "checked"}/>
+             <span class="imp-main"><b>${esc(it.name)}</b>
+               <small>${esc(BIZ_NAME[it.biz] || "")} · ${it.start ? `${esc(fmtMD(it.start))} ~ ${esc(fmtMD(it.end))}` : `체결 ${esc(fmtMD(it.date))}${it.period ? ` · ${esc(it.period)}` : ""}`}
+                 ${it.corp ? ` · ${esc(it.corp)}` : ""}${it.amount ? ` · ${won(it.amount)}` : ""}${dup ? " · 이미 있습니다" : ""}</small></span></label></li>`;
+         }).join("")}</ul>`;
+    btns().innerHTML = found.length
+      ? `<button class="btn btn-primary" data-imp="add">고른 계약 넣기</button>
+         <button class="btn btn-outline" data-imp="find">다시 찾기</button>
+         <button class="btn btn-outline" data-imp="close">닫기</button>`
+      : `<button class="btn btn-primary" data-imp="find">${icon("search", 18, "")}다시 찾기</button>
+         <button class="btn btn-outline" data-imp="close">닫기</button>`;
+  };
+
+  const find = async () => {
+    const from = $("#impFrom", dlg).value, to = $("#impTo", dlg).value;
+    const bizs = [...dlg.querySelectorAll("input[data-biz]:checked")].map((i) => i.dataset.biz);
+    if (!from || !to || to < from) { out().innerHTML = `<p class="alert is-warn">기간을 확인해 주세요.</p>`; return; }
+    if (toDay(to) - toDay(from) > 400) { out().innerHTML = `<p class="alert is-warn">한 번에 1년(400일)까지만 찾습니다.</p>`; return; }
+    if (!bizs.length) { out().innerHTML = `<p class="alert is-warn">구분을 하나 이상 골라 주세요.</p>`; return; }
+    btns().innerHTML = `<button class="btn btn-outline" data-imp="close">그만두고 닫기</button>`;
+    out().innerHTML = `<p class="imp-prog">기관코드 확인 중…</p>`;
+    let code;
+    try { code = await orgCode(); } catch (e) { out().innerHTML = `<p class="alert is-error">${esc(e.message)}</p>`; return showRetry(); }
+    if (!code) { out().innerHTML = `<p class="alert is-error">나라장터에서 이 고유번호의 기관코드를 찾지 못했습니다. [기관정보]에서 고유번호를 확인해 주세요.</p>`; return showRetry(); }
+
+    // 35일씩 끊어 묻는다(함수가 그 안을 다시 7일씩 나눈다)
+    const jobs = [];
+    for (const b of bizs) {
+      for (let a = from; a <= to; a = isoAdd(a, 35)) {
+        const e = isoAdd(a, 34) < to ? isoAdd(a, 34) : to;
+        jobs.push({ b, a: a.replace(/-/g, ""), e: e.replace(/-/g, "") });
+      }
+    }
+    found = [];
+    let done = 0, err = "";
+    const seen = new Set();
+    const prog = () => { if (!stop) out().innerHTML = `<p class="imp-prog">찾는 중… ${done}/${jobs.length} <span class="prog-bar"><i style="width:${Math.round(done / jobs.length * 100)}%"></i></span> · ${found.length}건</p>`; };
+    prog();
+    const worker = async () => {
+      while (jobs.length && !stop && !err) {
+        const j = jobs.shift();
+        try {
+          const r = await fetch(`/api/g2b?kind=cntrct&biz=${j.b}&code=${encodeURIComponent(code)}&from=${j.a}&to=${j.e}`);
+          let x = {};
+          try { x = await r.json(); } catch {}
+          if (!r.ok) throw new Error(x.error || (r.status === 404 ? "나라장터 찾기를 쓸 수 없는 주소입니다." : `오류(${r.status})`));
+          for (const it of x.items || []) {
+            const k = it.no || `${it.name}|${it.start}`;
+            if (!seen.has(k)) { seen.add(k); found.push(it); }
+          }
+        } catch (e) { err = e.message === "Failed to fetch" ? "인터넷 연결을 확인해 주세요." : e.message; }
+        done++; prog();
+      }
+    };
+    const total = jobs.length;
+    await Promise.all([worker(), worker(), worker()]);
+    if (stop) return;
+    if (err) {
+      if (!found.length) { out().innerHTML = `<p class="alert is-error">${esc(err)}</p>`; return showRetry(); }
+    }
+    showResults();
+    if (err) out().insertAdjacentHTML("afterbegin", `<p class="alert is-warn">일부(${total - done}/${total})를 못 찾았습니다 — ${esc(err)}</p>`);
+  };
+  const showRetry = () => {
+    btns().innerHTML = `<button class="btn btn-primary" data-imp="find">다시 찾기</button><button class="btn btn-outline" data-imp="close">닫기</button>`;
+  };
+
+  const add = () => {
+    const picks = [...dlg.querySelectorAll("input[data-impi]:checked")].map((i) => found[+i.dataset.impi]).filter((it) => !have(it));
+    if (!picks.length) { toast("고른 계약이 없습니다."); return; }
+    const made = picks.map((it) => newContract({
+      계약명: it.name, 시작일: it.start || "", 종료일: it.end || "", 계약금액: it.amount || "",
+      업체명: it.corp || "", 사업자번호: it.bizno || "", 업체대표: it.ceo || "", g2b: it.no || "",
+    }));
+    // 지난 계약에 같은 업체가 있으면 주소 · 전화 · 담당자도 채운다
+    made.forEach((c) => {
+      const v = vendorBook(data.contracts).get(String(c.업체명 || "").trim());
+      if (v) VENDOR_KEYS.forEach((k) => { if (v[k] && !String(c[k] || "").trim()) c[k] = v[k]; });
+    });
+    data.contracts.push(...made);
+    selId = made[0].id;
+    close();
+    changed(); render();
+    toast(`나라장터 계약 ${made.length}건을 넣었습니다.\n점검요일 · 업체 담당자는 계약마다 직접 넣어 주세요.`, 6000);
+  };
+
+  dlg.onclick = (e) => {
+    const b = e.target.closest("[data-imp]");
+    if (b) {
+      const a = b.dataset.imp;
+      if (a === "close") close();
+      else if (a === "find") { stop = false; find(); }
+      else if (a === "add") add();
+      return;
+    }
+  };
+  dlg.onchange = (e) => {
+    if (e.target.id === "impAll") dlg.querySelectorAll("input[data-impi]:not(:disabled)").forEach((i) => { i.checked = e.target.checked; });
+  };
+  dlg.showModal();
 }
 
 // ---------------------------------------------------------------- ③ 출력
@@ -1145,10 +1563,14 @@ const view = $("#view");
 
 view.addEventListener("input", (e) => {
   const t = e.target;
+  if (t.id === "listQ") { listQ = t.value; filterList(); return; }
   if (t.dataset.path && t.tagName === "INPUT") {
     const [g, k] = t.dataset.path.split(".");
     data[g][k] = t.value;
     t.classList.toggle("empty", !t.value.trim());
+    // 고유번호를 손으로 고치면 그 번호는 지금 기관명의 것으로 본다(나라장터 기관코드는 다시 찾아야 한다)
+    if (t.dataset.path === "org.고유번호") { data.org.번호기관 = data.org.기관명; data.org.기관코드 = ""; }
+    if (t.dataset.path === "org.기관명") showOrgName();
     changed();
   }
   if (t.dataset.cfield && t.tagName === "INPUT" && t.type !== "date") {
@@ -1175,6 +1597,13 @@ view.addEventListener("keydown", (e) => {
   else if (d.path === "org.고유번호") { e.preventDefault(); instFind(); }
   else if (d.cfield === "사업자번호") { e.preventDefault(); corpFind(); }
 });
+
+function keepScroll(fn) {
+  const top = view.querySelector(".clist")?.scrollTop ?? 0;
+  fn();
+  const box = view.querySelector(".clist");
+  if (box) box.scrollTop = top;
+}
 
 function keepFocus(fn) {
   const a = document.activeElement;
@@ -1221,6 +1650,18 @@ view.addEventListener("change", (e) => {
     c.비고 = t.value === "자동" ? { v: "", manual: false } : { v: t.value, manual: true };
     changed(); render();
   }
+  if (t.dataset.cpick) {
+    t.checked ? cPicked.add(t.dataset.cpick) : cPicked.delete(t.dataset.cpick);
+    keepScroll(render);
+    return;
+  }
+  if (t.id === "cpickAll") {
+    // 찾기 · 거르기로 보이는 줄만
+    view.querySelectorAll(".clist li[data-cid]:not([hidden])").forEach((li) =>
+      (t.checked ? cPicked.add(li.dataset.cid) : cPicked.delete(li.dataset.cid)));
+    keepScroll(render);
+    return;
+  }
   if (t.dataset.check) {
     t.checked ? checked.add(t.dataset.check) : checked.delete(t.dataset.check);
     render();
@@ -1241,6 +1682,7 @@ view.addEventListener("click", (e) => {
     else if (sy === "f-new") fileConnect("new");
     else if (sy === "f-open") fileConnect("open");
     else if (sy === "f-off") fileOff();
+    else if (sy === "f-on") fileOn();
     else if (sy === "reconnect") reconnect();
     else if (sy === "backup") { backupDownload(); toast("내 정보를 파일로 받았습니다.\n다른 컴퓨터에서는 [파일 불러오기]로 이 파일을 여시면 됩니다."); }
     return;
@@ -1261,7 +1703,8 @@ view.addEventListener("click", (e) => {
     else if (k === "corp") corpPick(corp.hits[+i]);
     return;
   }
-  if (t.dataset.sel) { selId = t.dataset.sel; render(); return; }
+  if (t.dataset.sel) { selId = t.dataset.sel; keepScroll(render); return; }
+  if (t.dataset.listf != null) { listF = t.dataset.listf; render(); return; }
   if (t.dataset.open) { selId = t.dataset.open; tab = "contracts"; render(); window.scrollTo({ top: 0 }); return; }
   if (t.dataset.mark) {
     const [id, no] = t.dataset.mark.split(":");
@@ -1283,20 +1726,13 @@ view.addEventListener("click", (e) => {
     render(); return;
   }
   if (act === "add") {
-    const c = refreshAuto({ id: uid(), 계약명: "", 시작일: "", 종료일: "", 점검요일: "", 계약금액: "",
-      업체명: "", 사업자번호: "", 업체주소: "", 업체대표: "", 대표자전화: "", 안전담당자: "", 담당자전화: "",
-      계획서유형: "", work: {}, 계약유형: { v: "", manual: false }, 비고: { v: "", manual: false }, formOverride: {} });
+    const c = newContract();
     data.contracts.push(c);
     selId = c.id;
     changed(); render();
     view.querySelector('[data-cfield="계약명"]')?.focus();
   } else if (act === "delete") {
-    const c = cById(selId);
-    if (c && confirm(`'${c.계약명 || "새 계약"}' 을 지웁니다. 되돌릴 수 없습니다. 계속할까요?`)) {
-      data.contracts = data.contracts.filter((x) => x.id !== selId);
-      checked.delete(selId); selId = null;
-      changed(); render();
-    }
+    if (selId) deleteContracts([selId]);
   } else if (act === "reauto") {
     const c = cById(selId);
     WORK_KEYS.forEach((k) => { c.work[k] = { v: false, manual: false }; });
@@ -1306,8 +1742,17 @@ view.addEventListener("click", (e) => {
   } else if (act === "to-output") {
     checked.clear(); checked.add(t.dataset.cid || selId);
     tab = "output"; render(); window.scrollTo({ top: 0 });
-  } else if (act === "copy") copyContract();
-  else if (act === "rollover") rollover();
+  } else if (act === "copy") copyContracts([selId]);
+  else if (act === "c-copy") copyContracts();
+  else if (act === "c-del") deleteContracts([...cPicked]);
+  else if (act === "c-unpick") { cPicked.clear(); keepScroll(render); }
+  else if (act === "g2b-import") g2bImport();
+  else if (act === "org-reset") resetOrg();
+  else if (act === "org-restore") restoreOrg();
+  else if (act === "org-trash-drop") dropTrash("org");
+  else if (act === "c-reset") resetContracts();
+  else if (act === "c-restore") restoreContracts();
+  else if (act === "c-trash-drop") dropTrash("contracts");
 });
 
 // ---------------------------------------------------------------- 시작
@@ -1315,6 +1760,7 @@ view.addEventListener("click", (e) => {
   const saved = await loadLocal();
   if (saved) {
     try { data = normalize(saved); } catch { data = emptyData(); }
+    fixOrg(data);
     data.contracts.forEach((c) => { c.id ??= uid(); refreshAuto(c); });
   }
   if (!data.org.기관명) tab = "org";
