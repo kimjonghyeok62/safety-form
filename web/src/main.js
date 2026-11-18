@@ -907,7 +907,7 @@ const EXPORTS = {
   patrol: { label: "작업장 순회점검표", sub: "매달 한 장 · 그 달 점검일이 들어감", tag: "9" },
   joint: { label: "작업장 합동점검표", sub: "분기(90일)마다", tag: "10" },
 };
-const ON_DEMAND = [15, 11, 12, 13, 14]; // 필요할 때만
+const ON_DEMAND = [11, 12, 13, 14, 15]; // 필요할 때만 ― 번호는 서식 파일 이름(11_ … 15_)과 같게 둔다
 
 function viewOutput() {
   const head = pageHead("서식 출력", "계약을 고르고 버튼을 누르면 <b>한글(hwpx) 파일</b>이 내려받아집니다. 여러 개면 zip 하나로 묶습니다.");
