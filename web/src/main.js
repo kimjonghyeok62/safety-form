@@ -394,9 +394,14 @@ for (const sel of ["#sidenav", "#topnav"]) {
 const pageHead = (title, desc, actions = "") =>
   `<div class="page-head${actions ? " has-actions" : ""}"><div><h1 class="page-title">${title}</h1>${desc ? `<p class="page-desc">${desc}</p>` : ""}</div>${actions ? `<div class="page-actions">${actions}</div>` : ""}</div>`;
 
+// 다시 그려도 같은 화면 · 같은 계약이면 목록과 계약 내용의 스크롤 자리를 지킨다(두 칸이 따로 스크롤된다)
+let lastView = { tab: "", selId: null };
 function render() {
   renderNav();
   const v = $("#view");
+  const same = lastView.tab === tab;
+  const keepList = same ? v.querySelector(".clist")?.scrollTop : null;
+  const keepDetail = same && lastView.selId === selId ? v.querySelector(".split > .col:last-child")?.scrollTop : null;
   v.className = "page" + ({ org: " is-wide", contracts: " is-full", output: " is-wide", board: " is-wide" }[tab] || "");
   const body = tab === "board" ? viewBoard()
     : tab === "org" ? viewOrg()
@@ -407,13 +412,17 @@ function render() {
   v.innerHTML = `<div id="banner"></div>${body}`;
   showSaveState();
   showOrgName();
+  if (keepList != null && v.querySelector(".clist")) v.querySelector(".clist").scrollTop = keepList;
+  if (keepDetail != null && v.querySelector(".split > .col:last-child")) v.querySelector(".split > .col:last-child").scrollTop = keepDetail;
+  const selChanged = !same || lastView.selId !== selId;
+  lastView = { tab, selId };
   if (tab === "contracts") {
     filterList();
     const all = v.querySelector("#cpickAll");
     if (all) all.indeterminate = cPicked.size > 0 && cPicked.size < data.contracts.length;
     const on = v.querySelector(".clist button.sel");
     const box = v.querySelector(".clist");
-    if (on && box && (on.offsetTop < box.scrollTop || on.offsetTop + on.offsetHeight > box.scrollTop + box.clientHeight)) {
+    if (selChanged && on && box && (on.offsetTop < box.scrollTop || on.offsetTop + on.offsetHeight > box.scrollTop + box.clientHeight)) {
       box.scrollTop = on.offsetTop - box.clientHeight / 3;
     }
   }
@@ -1525,7 +1534,7 @@ function viewOutput() {
     ${cardHead("download", "② 받기", nPick ? `고른 계약 <b>${nPick}건</b> · ○ 표시된 서식 <b>${nForms}개</b>` : "먼저 위 표에서 계약을 고르세요.")}
     <button class="out-all" data-export="all" data-label="일괄출력">
       ${icon("download", 24, "")}
-      <span><b>일괄 출력</b><small>고른 계약의 ○ 표시된 서식을 모두 한 번에 받습니다 (zip, 계약마다 폴더)</small></span></button>
+      <span><b>일괄 출력</b><small>고른 계약의 ○ 표시된 서식 + 15. 계약이행 통합 서약서를 한 번에 받습니다 (zip, 계약마다 폴더)</small></span></button>
 
     <h3 class="out-h">하나씩 받기</h3>
     <div class="out-tiles">${Object.entries(EXPORTS).map(([act, e]) => tile(act, e)).join("")}</div>

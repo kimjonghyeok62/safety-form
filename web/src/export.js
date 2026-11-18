@@ -12,6 +12,7 @@ import {
 import { renderHwpx, safeName, labelOf } from "./hwpx/render.js";
 
 const pad = (n) => String(n).padStart(2, "0");
+const PLEDGE = 15; // 계약이행 통합 서약서 ― 일괄 출력에 늘 넣는다
 
 function stamp(c) {
   const d = toDay(c.시작일);
@@ -140,7 +141,8 @@ export class Exporter {
     return out;
   }
 
-  // [일괄 출력] ― 계약마다 ○ 표시된 서식 전부(1~10). 파일마다 dir(계약명)을 달아 zip 안에서 계약별 폴더로 나눈다
+  // [일괄 출력] ― 계약마다 ○ 표시된 서식 전부(1~10) + 15. 계약이행 통합 서약서(계약마다 늘 1부).
+  // 파일마다 dir(계약명)을 달아 zip 안에서 계약별 폴더로 나눈다
   async all(data, contracts) {
     const out = { files: [], notes: [] };
     const NONE = "○ 표시된 서식이 없습니다";
@@ -155,7 +157,10 @@ export class Exporter {
         made += p.files.length;
         out.notes.push(...p.notes.filter((n) => !n.endsWith(NONE)));
       }
-      if (!made) out.notes.push(`${c.계약명} ― ${NONE}`);
+      if (!made) out.notes.push(`${c.계약명} ― ${NONE}(계약이행 통합 서약서만 넣었습니다)`);
+      const pledge = await this.single(data, [c], PLEDGE);
+      pledge.files.forEach((f) => out.files.push({ ...f, name: outName(c, `${PLEDGE}_${labelOf(FORMS[PLEDGE].file)}`), dir: String(c.계약명 || "").trim() }));
+      out.notes.push(...pledge.notes);
     }
     return out;
   }

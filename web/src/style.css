@@ -265,7 +265,18 @@ a { color: var(--primary); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) clamp(400px, 38%, 540px); gap: 14px; align-items: start; }
 .split > .col > .card:last-child { margin-bottom: 0; }
 .split > .col:last-child .grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
-.clist-card { position: sticky; top: calc(var(--topbar-h) + 12px); padding-bottom: 10px; container-type: inline-size; }
+.clist-card { padding-bottom: 10px; container-type: inline-size; }
+/* 넓은 화면: 목록과 계약 내용이 각자 스크롤 ― 두 칸 모두 화면 높이에 맞춰 위에 붙는다 */
+@media (min-width: 1100px) {
+  .split > .col {
+    position: sticky; top: calc(var(--topbar-h) + 10px);
+    max-height: calc(100vh - var(--topbar-h) - 20px);
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  }
+  .split > .col:first-child { display: flex; flex-direction: column; overflow: hidden; }
+  .split > .col:first-child .clist-card { display: flex; flex-direction: column; min-height: 0; margin-bottom: 0; }
+  .split > .col:first-child .clist { flex: 1 1 auto; min-height: 120px; max-height: none; }
+}
 .clist-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .clist-head h2 { margin: 0; }
 .clist-card .toolbar { margin-bottom: 8px; align-items: center; }
