@@ -140,6 +140,26 @@ export class Exporter {
     return out;
   }
 
+  // [일괄 출력] ― 계약마다 ○ 표시된 서식 전부(1~10). 파일마다 dir(계약명)을 달아 zip 안에서 계약별 폴더로 나눈다
+  async all(data, contracts) {
+    const out = { files: [], notes: [] };
+    const NONE = "○ 표시된 서식이 없습니다";
+    for (const c of contracts) {
+      const parts = [await this.forms17(data, [c])];
+      if (formMarked(c, 8)) parts.push(await this.council(data, [c]));
+      if (formMarked(c, 9)) parts.push(await this.patrol(data, [c]));
+      if (formMarked(c, 10)) parts.push(await this.joint(data, [c]));
+      let made = 0;
+      for (const p of parts) {
+        p.files.forEach((f) => out.files.push({ ...f, dir: String(c.계약명 || "").trim() }));
+        made += p.files.length;
+        out.notes.push(...p.notes.filter((n) => !n.endsWith(NONE)));
+      }
+      if (!made) out.notes.push(`${c.계약명} ― ${NONE}`);
+    }
+    return out;
+  }
+
   // [11~15] ― 계약마다 1부
   async single(data, contracts, formNo) {
     const out = { files: [], notes: [] };

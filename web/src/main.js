@@ -10,6 +10,7 @@ import {
   redirectSignIn, takeRedirectResult,
 } from "./store/googleDrive.js";
 import { createSync } from "./sync.js";
+import { NEIS_KEY } from "./config.js";
 import {
   refreshAuto, WORK_KEYS, WORK_NAMES, FORMS, planKind, progressOf,
   orgPositionDefaults, CONTRACT_TYPES,
@@ -315,6 +316,10 @@ const ICONS = {
   cloud: `<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/>`,
   book: `<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>`,
   hdd: `<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>`,
+  search: `<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
+  users: `<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
+  briefcase: `<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>`,
+  phone: `<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>`,
   save: `<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>`,
 };
 const icon = (name, size = 20, cls = "sidenav-icon") =>
@@ -483,7 +488,7 @@ function field(path, label, opts = {}) {
   const [grp, key] = path.split(".");
   const val = data[grp][key] ?? "";
   const cls = String(val).trim() ? "" : "empty";
-  const wide = opts.wide ? " wide" : "";
+  const wide = (opts.wide ? " wide" : "") + (opts.span ? ` span-${opts.span}` : "");
   if (opts.options) {
     return `<label class="field${wide}"><span>${label}</span><select data-path="${path}" class="${cls}">
       ${opts.options.map((o) => `<option${o === val ? " selected" : ""}>${esc(o)}</option>`).join("")}
@@ -501,45 +506,273 @@ function viewOrg() {
     ? `<div class="alert is-info alert-row"><span><b>다른 컴퓨터에서 쓰던 내용이 있나요?</b> 그때 쓴 구글 계정으로 로그인하면 그대로 불러옵니다.</span>
         <button class="btn btn-primary btn-sm" data-sync="g-connect">구글 계정으로 불러오기</button></div>`
     : `<div class="alert is-info">받아 둔 파일이 있으면 <b>[저장 · 이어쓰기]</b>에서 불러올 수 있습니다.</div>`;
+  const kind = data.org.기관구분 || "학교";
+  const isSchool = kind === "학교";
+  const seg = `<div class="seg" role="radiogroup" aria-label="기관구분">
+    ${["학교", "교육지원청"].map((k) => `<button type="button" role="radio" aria-checked="${k === kind}"
+      class="seg-btn${k === kind ? " is-on" : ""}" data-orgkind="${k}">${k}</button>`).join("")}</div>`;
+
+  // 기관명 칸 ― 학교면 [시도 ▾][학교명][찾기]가 한 덩어리
+  const nameVal = data.org.기관명 ?? "";
+  const nameField = isSchool ? `
+    <div class="field span-2">
+      <span>학교명</span>
+      <div class="input-group">
+        <select id="schoolRegion" aria-label="시도교육청">
+          ${NEIS_REGIONS.map(([code, nm]) => `<option value="${code}"${code === schoolRegion() ? " selected" : ""}>${nm}</option>`).join("")}
+        </select>
+        <input data-path="org.기관명" value="${esc(nameVal)}" class="${nameVal.trim() ? "" : "empty"}" placeholder="○○초등학교" />
+        <button type="button" class="btn btn-primary" data-act="school-find">${icon("search", 18, "")}찾기</button>
+      </div>
+      ${schoolPanel() || `<small class="field-note">학교명을 넣고 [찾기]를 누르면 주소 · 대표전화 · 팩스번호가 채워집니다.</small>`}
+    </div>`
+    : `
+    <div class="field span-2">
+      <span>기관명</span>
+      <div class="input-group">
+        <input data-path="org.기관명" value="${esc(nameVal)}" class="${nameVal.trim() ? "" : "empty"}" placeholder="○○교육지원청" />
+        <button type="button" class="btn btn-primary" data-act="inst-find">${icon("search", 18, "")}찾기</button>
+      </div>
+      ${instPanel() || `<small class="field-note">기관명을 넣고 [찾기]를 누르면 나라장터에서 고유번호 · 주소를 가져옵니다.</small>`}
+    </div>`;
+
   return pageHead("기관정보", "처음 한 번만 채우면 됩니다. <b>노란 칸</b>이 아직 빈 칸입니다.") + welcome + `
   <section class="card">
-    <h2>기관</h2>
-    <div class="grid">
-      ${field("org.기관구분", "기관구분", { options: ["학교", "교육지원청"] })}
-      ${field("org.기관명", "기관명", { ph: "○○초등학교" })}
-      ${field("org.고유번호", "고유번호")}
-      ${field("org.주소", "주소", { wide: true })}
+    ${cardHead("building", "기관", "서식 머리 · 끝에 들어가는 우리 기관 정보입니다.")}
+    ${seg}
+    <div class="form-grid">
+      ${nameField}
+      ${field("org.고유번호", "고유번호", { ph: "000-00-00000", span: 2 })}
+      ${field("org.주소", "주소", { span: 2 })}
       ${field("org.전화번호", "대표전화")}
       ${field("org.팩스번호", "팩스번호")}
     </div>
   </section>
   <section class="card">
-    <h2>결재선 · 기관대표자</h2>
-    <p class="hint">결재란에는 <b>직위</b>가 들어갑니다. 기관구분을 고르면 직위가 다시 채워집니다(고쳐 써도 됩니다).</p>
-    <div class="grid">
-      ${field("sign.담당자직위", "담당자 직위")}
-      ${field("sign.담당자성명", "담당자 성명")}
-      ${field("sign.담당자전화", "담당자 전화")}
-      ${field("sign.관리자직위", "관리자 직위")}
-      ${field("sign.관리자성명", "관리자 성명")}
-      ${field("sign.부서장직위", "부서장 직위")}
-      ${field("sign.부서장성명", "부서장 성명")}
-      ${field("sign.대표자직위", "기관대표자 직위")}
-      ${field("sign.대표자성명", "기관대표자 성명")}
-    </div>
+    ${cardHead("users", "결재선 · 기관대표자", "결재란에는 <b>직위</b>가 들어갑니다. 기관구분을 바꾸면 직위가 다시 채워집니다(고쳐 써도 됩니다).")}
+    ${roster(["직위", "성명", "전화"], [
+      { role: "담당자", step: 1, cells: ["sign.담당자직위", "sign.담당자성명", "sign.담당자전화"] },
+      { role: "관리자", step: 2, cells: ["sign.관리자직위", "sign.관리자성명", null] },
+      { role: "부서장", step: 3, cells: ["sign.부서장직위", "sign.부서장성명", null] },
+      { role: "기관대표자", cells: ["sign.대표자직위", "sign.대표자성명", null], sep: true },
+    ])}
   </section>
   <section class="card">
-    <h2>비상연락망 · 관할기관</h2>
-    <p class="hint">안전보건관리계획서의 ⑦ 비상조치 계획에 그대로 들어갑니다.</p>
-    <div class="grid">
-      ${field("emerg.소방서", "관할 소방서")}
-      ${field("emerg.소방서전화", "소방서 전화")}
-      ${field("emerg.병원", "인근 병원")}
-      ${field("emerg.병원전화", "병원 전화")}
-      ${field("emerg.노동지청", "관할 고용노동지청")}
-      ${field("emerg.노동지청전화", "노동지청 전화")}
-    </div>
+    ${cardHead("phone", "비상연락망 · 관할기관", "안전보건관리계획서의 ⑦ 비상조치 계획에 그대로 들어갑니다.")}
+    ${roster(["기관명", "전화"], [
+      { role: "소방서", cells: ["emerg.소방서", "emerg.소방서전화"], ph: ["○○소방서", "119"] },
+      { role: "병원", cells: ["emerg.병원", "emerg.병원전화"], ph: ["인근 병원", ""] },
+      { role: "고용노동지청", cells: ["emerg.노동지청", "emerg.노동지청전화"], ph: ["○○지청", ""] },
+    ])}
   </section>`;
+}
+
+function cardHead(ic, title, desc) {
+  return `<div class="card-head"><span class="card-icon">${icon(ic, 20, "")}</span>
+    <div><h2>${title}</h2>${desc ? `<p class="hint">${desc}</p>` : ""}</div></div>`;
+}
+
+// 역할 하나 = 한 줄. 넓은 화면은 표, 좁은 화면은 역할마다 작은 묶음(칸 이름이 칸 위에 뜬다)
+function roster(cols, rows) {
+  const n = cols.length;
+  const head = `<div class="roster-row roster-head" aria-hidden="true"><span></span>${cols.map((c) => `<span>${c}</span>`).join("")}</div>`;
+  const body = rows.map((r) => {
+    const cells = r.cells.map((path, i) => {
+      if (!path) return `<span class="roster-na" aria-hidden="true"></span>`;
+      const [g, k] = path.split(".");
+      const val = data[g][k] ?? "";
+      return `<label class="roster-cell"><span class="roster-label">${cols[i]}</span>
+        <input data-path="${path}" value="${esc(val)}" class="${String(val).trim() ? "" : "empty"}"
+          aria-label="${esc(r.role + " " + cols[i])}" placeholder="${esc(r.ph?.[i] || "")}" /></label>`;
+    }).join("");
+    return `<div class="roster-row${r.sep ? " roster-sep" : ""}">
+      <span class="roster-role">${r.step ? `<i class="roster-step" title="결재 ${r.step}단계">${r.step}</i>` : `<i class="roster-step is-blank"></i>`}${r.role}</span>${cells}</div>`;
+  }).join("");
+  return `<div class="roster" style="--cols:${n}">${head}${body}</div>`;
+}
+
+// ---------------------------------------------------------------- 학교 찾기 (교육부 NEIS 학교기본정보)
+// 브라우저가 open.neis.go.kr 에 바로 묻는다(서버 없음). 인증키가 없으면 한 번에 5건까지만 온다
+// ― 그래서 시도교육청을 같이 고르게 한다.
+const NEIS_REGIONS = [
+  ["B10", "서울"], ["C10", "부산"], ["D10", "대구"], ["E10", "인천"], ["F10", "광주"], ["G10", "대전"],
+  ["H10", "울산"], ["I10", "세종"], ["J10", "경기"], ["K10", "강원"], ["M10", "충북"], ["N10", "충남"],
+  ["P10", "전북"], ["Q10", "전남"], ["R10", "경북"], ["S10", "경남"], ["T10", "제주"],
+];
+const REGION_WORDS = { B10: "서울", C10: "부산", D10: "대구", E10: "인천", F10: "광주", G10: "대전", H10: "울산",
+  I10: "세종", J10: "경기", K10: "강원", M10: "충청북", N10: "충청남", P10: "전북|전라북", Q10: "전남|전라남",
+  R10: "경상북|경북", S10: "경상남|경남", T10: "제주" };
+let school = { region: "", busy: false, hits: null, msg: "" };
+
+function schoolRegion() {
+  if (school.region) return school.region;
+  const addr = data.org.주소 || "";
+  return Object.entries(REGION_WORDS).find(([, w]) => new RegExp("^(" + w + ")").test(addr))?.[0] || "J10";
+}
+
+// 찾기 결과 목록(학교 · 교육지원청 · 업체 공통). rows = [{ title, tag, sub }]
+function lookupPanel(kind, st, rows, source) {
+  if (st.busy) return `<div class="lookup-panel"><p class="lookup-msg">찾는 중…</p></div>`;
+  if (!st.hits && !st.msg) return "";
+  const items = rows.map((r, i) => `
+    <li><button type="button" data-pick="${kind}:${i}">
+      <b>${esc(r.title)}</b>${r.tag ? `<span class="tag">${esc(r.tag)}</span>` : ""}
+      ${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</button></li>`).join("");
+  return `<div class="lookup-panel">
+    ${st.msg ? `<p class="lookup-msg">${st.msg}</p>` : ""}
+    ${items ? `<ul class="lookup-list">${items}</ul>` : ""}
+    <div class="lookup-foot"><span>자료: ${source}</span>
+      <button type="button" class="link-btn" data-act="lookup-close" data-kind="${kind}">닫기</button></div></div>`;
+}
+const hitMsg = (n, total, more) => !n ? "" : total > n ? `${total}곳 중 ${n}곳만 보입니다. ${more}` : "맞는 것을 누르세요.";
+
+function schoolPanel() {
+  return lookupPanel("school", school, (school.hits || []).map((h) => ({
+    title: h.SCHUL_NM, tag: h.JU_ORG_NM || h.ATPT_OFCDC_SC_NM,
+    sub: [h.ORG_RDNMA, h.ORG_TELNO].filter(Boolean).join(" · "),
+  })), "교육부 나이스 교육정보 개방 포털");
+}
+
+async function schoolFind() {
+  const name = (data.org.기관명 || "").trim().replace(/\s+/g, "");
+  if (!name) { school = { ...school, hits: null, msg: "학교명을 먼저 넣어 주세요." }; return keepFocus(render); }
+  school = { ...school, region: schoolRegion(), busy: true, hits: null, msg: "" };
+  keepFocus(render);
+  const q = new URLSearchParams({ Type: "json", pIndex: "1", pSize: "10", ATPT_OFCDC_SC_CODE: school.region, SCHUL_NM: name });
+  if (NEIS_KEY) q.set("KEY", NEIS_KEY);
+  try {
+    const r = await fetch("https://open.neis.go.kr/hub/schoolInfo?" + q);
+    const j = await r.json();
+    const rows = j.schoolInfo?.[1]?.row || [];
+    const total = j.schoolInfo?.[0]?.head?.[0]?.list_total_count || rows.length;
+    school.hits = rows;
+    school.msg = rows.length ? hitMsg(rows.length, total, "학교명을 더 길게 넣어 보세요.")
+      : "찾는 학교가 없습니다. 시도를 확인하거나 학교명을 줄여서(예: ○○초) 다시 찾아 보세요.";
+  } catch {
+    school.hits = null;
+    school.msg = "나이스에 연결하지 못했습니다. 인터넷 연결을 확인하거나 직접 넣어 주세요.";
+  }
+  school.busy = false;
+  render();
+}
+
+function schoolPick(h) {
+  const tel = (s) => (s || "").trim();
+  data.org.기관명 = h.SCHUL_NM;
+  data.org.주소 = [h.ORG_RDNMA, h.ORG_RDNDA].filter(Boolean).join(" ").trim();
+  if (tel(h.ORG_TELNO)) data.org.전화번호 = tel(h.ORG_TELNO);
+  if (tel(h.ORG_FAXNO)) data.org.팩스번호 = tel(h.ORG_FAXNO);
+  school = { region: school.region, busy: false, hits: null, msg: "" };
+  changed(); render();
+  if (String(data.org.고유번호 || "").trim()) {
+    toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.`);
+    return;
+  }
+  // 고유번호는 나이스에 없다 → 나라장터 수요기관 정보에서 같은 학교(같은 교육지원청 밑)를 하나만 찾으면 채운다
+  toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.
+고유번호를 나라장터에서 찾는 중…`);
+  const flat = (s) => String(s || "").replace(/\s+/g, "");
+  g2b("inst", h.SCHUL_NM).then((items) => {
+    const m = items.filter((x) => flat(x.name).endsWith(flat(h.SCHUL_NM))
+      && (!h.JU_ORG_NM || flat(x.name).includes(flat(h.JU_ORG_NM))) && x.bizno);
+    if (m.length === 1 && data.org.기관명 === h.SCHUL_NM && !String(data.org.고유번호 || "").trim()) {
+      data.org.고유번호 = m[0].bizno;
+      changed(); keepFocus(render);
+      toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호 · 고유번호를 채웠습니다.`);
+    } else toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.
+고유번호는 찾지 못해 직접 넣어 주세요.`);
+  }).catch(() => toast(`${h.SCHUL_NM} — 주소 · 대표전화 · 팩스번호를 채웠습니다.
+고유번호는 직접 넣어 주세요.`));
+}
+
+// ---------------------------------------------------------------- 나라장터 찾기 (조달청 사용자정보 서비스)
+// 공공데이터포털 인증키를 감추려고 이 사이트의 /api/g2b(../api/g2b.js)를 거친다. 묻는 말만 넘기고 저장하지 않는다.
+async function g2b(kind, q) {
+  let r;
+  try { r = await fetch(`/api/g2b?kind=${kind}&q=${encodeURIComponent(q)}`); }
+  catch { throw new Error("인터넷 연결을 확인해 주세요."); }
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (!r.ok) throw new Error(j.error || (r.status === 404 ? "나라장터 찾기를 쓸 수 없는 주소입니다." : `오류(${r.status})`));
+  return j.items || [];
+}
+const bizDigits = (s) => String(s || "").replace(/\D/g, "");
+
+// 교육지원청 이름 → 고유번호 · 주소
+let inst = { busy: false, hits: null, msg: "" };
+const lastWord = (s) => String(s || "").trim().split(/\s+/).pop();
+
+function instPanel() {
+  return lookupPanel("inst", inst, (inst.hits || []).map((h) => ({
+    title: lastWord(h.name), tag: h.bizno, sub: [h.name !== lastWord(h.name) ? h.name : "", h.addr].filter(Boolean).join(" · "),
+  })), "조달청 나라장터 수요기관 정보");
+}
+
+async function instFind() {
+  const q = (data.org.기관명 || "").trim();
+  if (q.replace(/\s/g, "").length < 2) { inst = { busy: false, hits: null, msg: "기관명을 두 글자 이상 넣어 주세요." }; return keepFocus(render); }
+  inst = { busy: true, hits: null, msg: "" };
+  keepFocus(render);
+  try {
+    const items = await g2b("inst", q);
+    inst = { busy: false, hits: items, msg: items.length ? hitMsg(items.length, items.length, "")
+      : "찾는 기관이 없습니다. 이름을 줄여서(예: ○○교육지원청) 다시 찾아 보세요." };
+  } catch (e) { inst = { busy: false, hits: null, msg: esc(e.message) + " 직접 넣어 주세요." }; }
+  render();
+}
+
+function instPick(h) {
+  data.org.기관명 = lastWord(h.name);
+  if (h.bizno) data.org.고유번호 = h.bizno;
+  if (h.addr) data.org.주소 = h.addr;
+  if (h.tel) data.org.전화번호 = h.tel;
+  if (h.fax) data.org.팩스번호 = h.fax;
+  inst = { busy: false, hits: null, msg: "" };
+  changed(); render();
+  toast(`${lastWord(h.name)} — ${[h.bizno && "고유번호", h.addr && "주소", h.tel && "대표전화", h.fax && "팩스번호"].filter(Boolean).join(" · ")}를 채웠습니다.`);
+}
+
+// 업체명 또는 사업자등록번호 → 업체 정보
+let corp = { cid: "", busy: false, hits: null, msg: "" };
+
+function corpPanel(c) {
+  if (corp.cid !== c.id) return "";
+  return lookupPanel("corp", corp, (corp.hits || []).map((h) => ({
+    title: h.name, tag: h.bizno, sub: [h.ceo && "대표 " + h.ceo, h.addr, h.tel].filter(Boolean).join(" · "),
+  })), "조달청 나라장터 조달업체 정보");
+}
+
+async function corpFind() {
+  const c = cById(selId);
+  if (!c) return;
+  const no = bizDigits(c.사업자번호);
+  const q = no.length === 10 ? no : (c.업체명 || "").trim();
+  if (q.replace(/\s/g, "").length < 2) {
+    corp = { cid: c.id, busy: false, hits: null, msg: "업체명이나 사업자등록번호(10자리)를 먼저 넣어 주세요." };
+    return keepFocus(render);
+  }
+  corp = { cid: c.id, busy: true, hits: null, msg: "" };
+  keepFocus(render);
+  try {
+    const items = await g2b("corp", q);
+    corp = { cid: c.id, busy: false, hits: items, msg: items.length ? hitMsg(items.length, items.length, "")
+      : "나라장터에 등록된 업체가 없습니다. 이름을 줄이거나 사업자등록번호로 찾아 보세요." };
+  } catch (e) { corp = { cid: c.id, busy: false, hits: null, msg: esc(e.message) + " 직접 넣어 주세요." }; }
+  render();
+}
+
+function corpPick(h) {
+  const c = cById(corp.cid);
+  if (!c) return;
+  if (h.name) c.업체명 = h.name;
+  if (h.bizno) c.사업자번호 = h.bizno;
+  if (h.addr) c.업체주소 = h.addr;
+  if (h.ceo) c.업체대표 = h.ceo;
+  if (h.tel && !String(c.대표자전화 || "").trim()) c.대표자전화 = h.tel;
+  corp = { cid: "", busy: false, hits: null, msg: "" };
+  changed(); render();
+  toast(`${h.name} — ${[h.bizno && "사업자등록번호", h.ceo && "대표자", h.addr && "주소", h.tel && "전화"].filter(Boolean).join(" · ")}를 채웠습니다.
+업체 담당자는 직접 넣어 주세요.`);
 }
 
 // 기관구분을 바꾸면: 지금 값을 보관 → 비움 → 그 기관구분으로 적어 둔 값이 있으면 되살림
@@ -613,22 +846,34 @@ function viewContractForm(c) {
   const ct = c.계약유형 || { v: "", manual: false };
   return `
   <section class="card">
-    <h2 style="margin-bottom:14px">${esc(c.계약명 || "새 계약")}</h2>
+    ${cardHead("file", esc(c.계약명 || "새 계약"), "")}
     <div class="grid">
       ${cfield(c, "계약명", "계약명", { wide: true, ph: "2026학년도 청소·미화 위탁 용역" })}
       ${cfield(c, "시작일", "계약 시작일", { type: "date" })}
       ${cfield(c, "종료일", "계약 종료일", { type: "date" })}
       ${cfield(c, "점검요일", "점검요일", { options: WEEKDAYS })}
       ${cfield(c, "계약금액", "계약금액(원)", { num: true, ph: "15600000" })}
-      ${cfield(c, "업체명", "업체명")}
-      ${cfield(c, "사업자번호", "사업자등록번호")}
-      ${cfield(c, "업체주소", "업체 주소", { wide: true })}
+    </div>
+    <p class="hint" style="margin-top:14px">계약기간: <b>${days ? days + "일" : "—"}</b></p>
+  </section>
+  <section class="card">
+    ${cardHead("briefcase", "계약 업체", "업체명이나 사업자등록번호를 넣고 <b>[나라장터에서 찾기]</b>를 누르면 대표자 · 주소 · 전화가 채워집니다.")}
+    <div class="grid">
+      <div class="field wide">
+        <span>업체명</span>
+        <div class="input-group">
+          <input data-cfield="업체명" value="${esc(c.업체명 ?? "")}" class="${String(c.업체명 ?? "").trim() ? "" : "empty"}" placeholder="(주)○○용역" />
+          <button type="button" class="btn btn-primary" data-act="corp-find">${icon("search", 18, "")}나라장터에서 찾기</button>
+        </div>
+        ${corpPanel(c)}
+      </div>
+      ${cfield(c, "사업자번호", "사업자등록번호", { ph: "000-00-00000" })}
       ${cfield(c, "업체대표", "업체 대표자")}
+      ${cfield(c, "업체주소", "업체 주소", { wide: true })}
       ${cfield(c, "대표자전화", "대표자 전화")}
       ${cfield(c, "안전담당자", "업체 담당자(직위 성명)")}
       ${cfield(c, "담당자전화", "업체 담당자 전화")}
     </div>
-    <p class="hint" style="margin-top:14px">계약기간: <b>${days ? days + "일" : "—"}</b></p>
   </section>
   <section class="card">
     <h2>자동 판정</h2>
@@ -657,34 +902,39 @@ function viewContractForm(c) {
 }
 
 // ---------------------------------------------------------------- ③ 출력
-const BTNS = [
-  { act: "forms17", label: "1~7번 출력", cls: "navy" },
-  { act: "council", label: "8.협의체 회의록", cls: "green" },
-  { act: "patrol", label: "9.순회점검표", cls: "green" },
-  { act: "joint", label: "10.합동점검표", cls: "green" },
-  { act: "single-11", label: "11.아차사고", cls: "grey" },
-  { act: "single-12", label: "12.관리감독자", cls: "grey" },
-  { act: "single-13", label: "13.발생보고", cls: "grey" },
-  { act: "single-14", label: "14.사고보고", cls: "grey" },
-  { act: "single-15", label: "15.이행서약서", cls: "navy" },
+// 표 머리에 쓰는 짧은 이름 · 묶음
+const SHORT = { 1: "계획서", 2: "수준평가", 3: "도급점검", 4: "고소", 5: "화기", 6: "밀폐", 7: "전기", 8: "협의체", 9: "순회", 10: "합동" };
+const COL_GROUPS = [
+  { label: "기본 서식", nos: [1, 2, 3] },
+  { label: "작업별 점검표", nos: [4, 5, 6, 7] },
+  { label: "정기 점검", nos: [8, 9, 10], cls: "g8" },
 ];
+// 하나씩 받기 ― [버튼 이름, 한 줄 설명]
+const EXPORTS = {
+  forms17: { label: "기본 서식 · 작업별 점검표", sub: "계획서 · 수준평가 · 도급점검 · 고소 · 화기 · 밀폐 · 전기 중 ○ 표시된 것", tag: "1~7" },
+  council: { label: "안전보건협의체 회의록", sub: "매달 1회 · 회차마다 한 쪽", tag: "8" },
+  patrol: { label: "작업장 순회점검표", sub: "매달 한 장 · 그 달 점검일이 들어감", tag: "9" },
+  joint: { label: "작업장 합동점검표", sub: "분기(90일)마다", tag: "10" },
+};
+const ON_DEMAND = [15, 11, 12, 13, 14]; // 필요할 때만
 
 function viewOutput() {
   const head = pageHead("서식 출력", "계약을 고르고 버튼을 누르면 <b>한글(hwpx) 파일</b>이 내려받아집니다. 여러 개면 zip 하나로 묶습니다.");
   if (!data.contracts.length) return head + `<section class="card"><p class="empty-note">[계약정보]에서 계약을 먼저 넣어 주세요.</p></section>`;
   const today = todayIso();
-  const cols = FORMS.slice(1).map((f) =>
-    `<th class="${f.no >= 11 ? "g11" : f.no >= 8 && f.no <= 10 ? "g8" : ""}" title="${esc(f.title)}">${f.no}</th>`).join("");
+  const nos = COL_GROUPS.flatMap((g) => g.nos);
+  const groupRow = COL_GROUPS.map((g) => `<th colspan="${g.nos.length}" class="grp ${g.cls || ""}">${g.label}</th>`).join("");
+  const cols = nos.map((no) =>
+    `<th class="${no >= 8 ? "g8" : ""}" title="${no}. ${esc(FORMS[no].title)}">${SHORT[no]}</th>`).join("");
   const rows = data.contracts.map((c, i) => {
     const p = progressOf(c, today);
-    const marks = FORMS.slice(1).map((f) => {
-      if (f.no >= 11) return `<td class="mark" style="color:var(--muted)">·</td>`;
-      const on = formMarked(c, f.no);
-      const ov = typeof c.formOverride?.[f.no] === "boolean";
-      return `<td class="mark${ov ? " override" : ""}" data-mark="${c.id}:${f.no}" title="눌러서 ○ 바꾸기">${on ? "○" : ""}</td>`;
+    const marks = nos.map((no) => {
+      const on = formMarked(c, no);
+      const ov = typeof c.formOverride?.[no] === "boolean";
+      return `<td class="mark${ov ? " override" : ""}" data-mark="${c.id}:${no}" title="${esc(FORMS[no].title)} — 눌러서 ○ 바꾸기">${on ? "○" : ""}</td>`;
     }).join("");
     return `<tr class="${p}">
-      <td><input type="checkbox" data-check="${c.id}" ${checked.has(c.id) ? "checked" : ""} style="width:20px;height:20px"/></td>
+      <td><input type="checkbox" data-check="${c.id}" ${checked.has(c.id) ? "checked" : ""} aria-label="${esc(c.계약명 || "계약")} 고르기" style="width:20px;height:20px"/></td>
       <td>${i + 1}</td>
       <td class="name">${esc(c.계약명)}</td>
       <td>${contractDays(c) ? contractDays(c) + "일" : ""}</td>
@@ -692,15 +942,39 @@ function viewOutput() {
       ${marks}</tr>`;
   }).join("");
 
+  const nPick = data.contracts.filter((c) => checked.has(c.id)).length;
+  const nForms = data.contracts.filter((c) => checked.has(c.id))
+    .reduce((n, c) => n + nos.filter((no) => formMarked(c, no)).length, 0);
+  const tile = (act, e) => `
+    <button class="out-tile" data-export="${act}" data-label="${esc(e.label)}">
+      <span class="out-no">${e.tag}</span>
+      <span class="out-txt"><b>${esc(e.label)}</b><small>${esc(e.sub)}</small></span>
+      ${icon("download", 18, "out-ic")}</button>`;
+
   return head + `
   <section class="card">
-    <p class="hint">맨 왼쪽 칸으로 계약을 고르세요. ○ 는 그 계약에 갖춰야 할 서식입니다(칸을 눌러 바꿀 수 있습니다).</p>
-    <div class="toolbar">${BTNS.map((b) => `<button class="btn ${b.cls}" data-export="${b.act}">${b.label}</button>`).join("")}</div>
+    ${cardHead("file", "① 계약 고르기", "맨 왼쪽 칸으로 출력할 계약을 고르세요. <b>○</b> 는 그 계약에 갖춰야 할 서식입니다(칸을 누르면 바꿀 수 있습니다).")}
     <div class="table-wrap"><table class="out">
-      <thead><tr><th><input type="checkbox" data-checkall style="width:20px;height:20px"/></th><th>연번</th><th>계약명</th><th>기간</th><th>점검요일</th>${cols}</tr></thead>
+      <thead>
+        <tr><th rowspan="2"><input type="checkbox" data-checkall aria-label="모두 고르기" style="width:20px;height:20px"/></th>
+          <th rowspan="2">연번</th><th rowspan="2">계약명</th><th rowspan="2">기간</th><th rowspan="2">점검요일</th>${groupRow}</tr>
+        <tr>${cols}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <p class="legend">1 계획서 · 2 수준평가 · 3 도급점검 · 4 고소 · 5 화기 · 6 밀폐 · 7 전기 · 8 협의체(월 1회) · 9 순회(달마다) · 10 합동(분기) · 11~15 필요할 때</p>
+    <p class="legend">칸 이름에 마우스를 올리면 서식의 전체 이름이 보입니다. <i style="background:var(--manual)"></i>직접 바꾼 칸</p>
+  </section>
+
+  <section class="card">
+    ${cardHead("download", "② 받기", nPick ? `고른 계약 <b>${nPick}건</b> · ○ 표시된 서식 <b>${nForms}개</b>` : "먼저 위 표에서 계약을 고르세요.")}
+    <button class="out-all" data-export="all" data-label="일괄출력">
+      ${icon("download", 24, "")}
+      <span><b>일괄 출력</b><small>고른 계약의 ○ 표시된 서식을 모두 한 번에 받습니다 (zip, 계약마다 폴더)</small></span></button>
+
+    <h3 class="out-h">하나씩 받기</h3>
+    <div class="out-tiles">${Object.entries(EXPORTS).map(([act, e]) => tile(act, e)).join("")}</div>
+
+    <h3 class="out-h">필요할 때만 <small>표의 ○ 와 상관없이, 고른 계약마다 한 부씩</small></h3>
+    <div class="out-tiles is-sm">${ON_DEMAND.map((no) => tile(`single-${no}`, { label: FORMS[no].title, sub: "", tag: String(no) })).join("")}</div>
   </section>`;
 }
 
@@ -710,16 +984,20 @@ const exporter = new Exporter(async (name) => {
   return new Uint8Array(await r.arrayBuffer());
 }, todayDay());
 
+const safeDir = (s) => String(s).replace(/[\\/:*?"<>|·]/g, "").trim().slice(0, 60) || "계약";
+
 async function runExport(act, btn) {
   const picked = data.contracts.filter((c) => checked.has(c.id) && String(c.계약명 || "").trim());
   if (!picked.length) { toast("출력할 계약을 왼쪽 칸에서 골라 주세요."); return; }
   btn.disabled = true;
-  const old = btn.textContent;
-  btn.textContent = "만드는 중…";
+  const old = btn.innerHTML, label = btn.dataset.label || act;
+  btn.classList.add("is-busy");
+  btn.querySelector("b").textContent = "만드는 중…";
   try {
     exporter.today = todayDay();
     let r;
-    if (act === "forms17") r = await exporter.forms17(data, picked);
+    if (act === "all") r = await exporter.all(data, picked);
+    else if (act === "forms17") r = await exporter.forms17(data, picked);
     else if (act === "council") r = await exporter.council(data, picked);
     else if (act === "patrol") r = await exporter.patrol(data, picked);
     else if (act === "joint") r = await exporter.joint(data, picked);
@@ -729,10 +1007,11 @@ async function runExport(act, btn) {
       download(r.files[0].name, r.files[0].bytes, "application/hwp+zip");
     } else if (r.files.length > 1) {
       const z = new JSZip();
-      r.files.forEach((f) => z.file(f.name, f.bytes));
+      const byDir = act === "all" && picked.length > 1;
+      r.files.forEach((f) => z.file((byDir && f.dir ? safeDir(f.dir) + "/" : "") + f.name, f.bytes));
       const bytes = await z.generateAsync({ type: "uint8array" });
       const first = String(picked[0].계약명).replace(/[\\/:*?"<>|·]/g, "");
-      download(`${first}${picked.length > 1 ? `_외${picked.length - 1}건` : ""}_${old.replace(/[^\w가-힣~]/g, "")}.zip`, bytes, "application/zip");
+      download(`${first}${picked.length > 1 ? `_외${picked.length - 1}건` : ""}_${label.replace(/[^\w가-힣~]/g, "")}.zip`, bytes, "application/zip");
     }
     const msg = [`${r.files.length}개 파일을 만들었습니다.`];
     if (r.notes.length) msg.push("", "만들지 않은 것:", ...r.notes.map((n) => " · " + n));
@@ -742,7 +1021,8 @@ async function runExport(act, btn) {
     toast("출력하지 못했습니다: " + err.message, 8000);
   } finally {
     btn.disabled = false;
-    btn.textContent = old;
+    btn.classList.remove("is-busy");
+    btn.innerHTML = old;
   }
 }
 
@@ -771,6 +1051,14 @@ view.addEventListener("input", (e) => {
   }
 });
 
+// 기관명 · 업체명 · 사업자등록번호 칸에서 Enter = [찾기]
+view.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.isComposing) return;
+  const d = e.target.dataset || {};
+  if (d.path === "org.기관명") { e.preventDefault(); (data.org.기관구분 || "학교") === "학교" ? schoolFind() : instFind(); }
+  else if (d.cfield === "업체명" || d.cfield === "사업자번호") { e.preventDefault(); corpFind(); }
+});
+
 function keepFocus(fn) {
   const a = document.activeElement;
   const key = a?.dataset?.cfield || a?.dataset?.path;
@@ -790,6 +1078,7 @@ view.addEventListener("change", (e) => {
     if (f) importFile(f);
     return;
   }
+  if (t.id === "schoolRegion") { school.region = t.value; return; }
   if (t.dataset.path && t.tagName === "SELECT") {
     const [g, k] = t.dataset.path.split(".");
     const prev = data[g][k];
@@ -817,6 +1106,7 @@ view.addEventListener("change", (e) => {
   }
   if (t.dataset.check) {
     t.checked ? checked.add(t.dataset.check) : checked.delete(t.dataset.check);
+    render();
   }
   if (t.hasAttribute("data-checkall")) {
     data.contracts.forEach((x) => (t.checked ? checked.add(x.id) : checked.delete(x.id)));
@@ -838,6 +1128,22 @@ view.addEventListener("click", (e) => {
     else if (sy === "backup") { backupDownload(); toast("내 정보를 파일로 받았습니다.\n다른 컴퓨터에서는 [파일 불러오기]로 이 파일을 여시면 됩니다."); }
     return;
   }
+  if (t.dataset.orgkind) {
+    const prev = data.org.기관구분, next = t.dataset.orgkind;
+    if (prev === next) return;
+    data.org.기관구분 = next;
+    switchOrgKind(prev, next);
+    school = { ...school, hits: null, msg: "" };
+    inst = { busy: false, hits: null, msg: "" };
+    changed(); render(); return;
+  }
+  if (t.dataset.pick) {
+    const [k, i] = t.dataset.pick.split(":");
+    if (k === "school") schoolPick(school.hits[+i]);
+    else if (k === "inst") instPick(inst.hits[+i]);
+    else if (k === "corp") corpPick(corp.hits[+i]);
+    return;
+  }
   if (t.dataset.sel) { selId = t.dataset.sel; render(); return; }
   if (t.dataset.mark) {
     const [id, no] = t.dataset.mark.split(":");
@@ -850,6 +1156,14 @@ view.addEventListener("click", (e) => {
   }
   if (t.dataset.export) { runExport(t.dataset.export, t); return; }
   const act = t.dataset.act;
+  if (act === "school-find") { schoolFind(); return; }
+  if (act === "inst-find") { instFind(); return; }
+  if (act === "corp-find") { corpFind(); return; }
+  if (act === "lookup-close") {
+    const k = t.dataset.kind, off = { busy: false, hits: null, msg: "" };
+    if (k === "school") school = { ...school, ...off }; else if (k === "inst") inst = off; else corp = { cid: "", ...off };
+    render(); return;
+  }
   if (act === "add") {
     const c = refreshAuto({ id: uid(), 계약명: "", 시작일: "", 종료일: "", 점검요일: "", 계약금액: "",
       업체명: "", 사업자번호: "", 업체주소: "", 업체대표: "", 대표자전화: "", 안전담당자: "", 담당자전화: "",
