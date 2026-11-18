@@ -397,7 +397,7 @@ const pageHead = (title, desc, actions = "") =>
 function render() {
   renderNav();
   const v = $("#view");
-  v.className = "page" + ({ org: " is-mid", contracts: " is-wide", output: " is-wide", board: " is-wide" }[tab] || "");
+  v.className = "page" + ({ org: " is-wide", contracts: " is-full", output: " is-wide", board: " is-wide" }[tab] || "");
   const body = tab === "board" ? viewBoard()
     : tab === "org" ? viewOrg()
     : tab === "contracts" ? viewContracts()
@@ -409,6 +409,8 @@ function render() {
   showOrgName();
   if (tab === "contracts") {
     filterList();
+    const all = v.querySelector("#cpickAll");
+    if (all) all.indeterminate = cPicked.size > 0 && cPicked.size < data.contracts.length;
     const on = v.querySelector(".clist button.sel");
     const box = v.querySelector(".clist");
     if (on && box && (on.offsetTop < box.scrollTop || on.offsetTop + on.offsetHeight > box.scrollTop + box.clientHeight)) {
@@ -604,6 +606,7 @@ function viewOrg() {
       ${field("org.팩스번호", "팩스번호")}
     </div>
   </section>
+  <div class="org-cols">
   <section class="card">
     ${cardHead("users", "결재선 · 기관대표자", "결재란에는 <b>직위</b>가 들어갑니다. 기관구분을 바꾸면 직위가 다시 채워집니다(고쳐 써도 됩니다).")}
     ${roster(["직위", "성명", "전화"], [
@@ -620,7 +623,8 @@ function viewOrg() {
       { role: "병원", cells: ["emerg.병원", "emerg.병원전화"], ph: ["인근 병원", ""] },
       { role: "고용노동지청", cells: ["emerg.노동지청", "emerg.노동지청전화"], ph: ["○○지청", ""] },
     ])}
-  </section>`;
+  </section>
+  </div>`;
 }
 
 function cardHead(ic, title, desc) {
@@ -1023,23 +1027,22 @@ function viewContracts() {
       : st.state === "예정" ? `<span class="spill is-예정">예정</span>`
       : st.state === "완료" ? `<span class="spill is-완료">완료</span>` : "";
     const when = c.시작일 ? `${fmtMD(c.시작일)}~${fmtMD(c.종료일)}` : "기간 없음";
+    const amt = moneyDigits(c.계약금액);
     return `<li data-cid="${c.id}"${listHit(c) ? "" : " hidden"}${cPicked.has(c.id) ? ' class="is-picked"' : ""}>
       <label class="cpick"><input type="checkbox" data-cpick="${c.id}" ${cPicked.has(c.id) ? "checked" : ""} aria-label="${esc((c.계약명 || "계약") + " 고르기")}"/></label>
-      <button data-sel="${c.id}" class="${st.state ? "is-" + st.state : ""}${c.id === selId ? " sel" : ""}"${c.id === selId ? ' aria-current="true"' : ""}>
-      <span class="nm"><span class="no">${i + 1}</span>${esc(c.계약명 || "(계약명 없음)")}</span>${pill}
-      <span class="meta">${esc([c.업체명, when].filter(Boolean).join(" · "))}</span>
-    </button></li>`;
+      <button data-sel="${c.id}" class="crow${st.state ? " is-" + st.state : ""}${c.id === selId ? " sel" : ""}"${c.id === selId ? ' aria-current="true"' : ""}>
+        <span class="no">${i + 1}</span>
+        <span class="nm" title="${esc(c.계약명 || "")}">${esc(c.계약명 || "(계약명 없음)")}</span>
+        <span class="st">${pill}</span>
+        <span class="sub"><span class="corp">${esc(c.업체명 || "")}</span><span class="when">${esc(when)}</span><span class="amt">${amt ? esc(manWon(amt)) : ""}</span></span>
+      </button></li>`;
   }).join("");
 
   const has = data.contracts.length > 0;
   [...cPicked].forEach((id) => { if (!cById(id)) cPicked.delete(id); });
   const nPick = cPicked.size;
-  const pickBar = !has ? "" : nPick
-    ? `<div class="cpick-bar"><span><b>${nPick}건</b> 고름</span>
-        <button type="button" class="btn btn-outline btn-sm" data-act="c-copy">${icon("copy", 16, "")}복사하기</button>
-        <button type="button" class="btn btn-danger btn-sm" data-act="c-del">삭제</button>
-        <button type="button" class="link-btn" data-act="c-unpick">선택 해제</button></div>`
-    : "";
+  const nTag = nPick ? ` <b class="cnt">${nPick}</b>` : "";
+  const whose = nPick ? `체크한 계약 ${nPick}건` : "지금 보는 계약";
   return pageHead("계약정보", "계약명을 넣으면 <b>계약유형 · 작업유형 · 계획서 서식</b>이 자동으로 정해집니다.") + trashBar("contracts") + `
   <div class="split">
     <div class="col"><section class="card clist-card">
@@ -1048,18 +1051,37 @@ function viewContracts() {
       <div class="toolbar">
         <button class="btn btn-primary" data-act="add">+ 계약 추가</button>
         <button class="btn btn-outline" data-act="g2b-import" title="우리 기관이 나라장터에 등록한 계약을 찾아 넣습니다">${icon("search", 18, "")}나라장터에서 가져오기</button>
-        ${has ? `<button class="btn btn-outline btn-sm" data-act="c-copy" title="체크한 계약(없으면 지금 보는 계약)을 그대로 또는 다음 학년도로 복사합니다">${icon("copy", 16, "")}복사하기</button>` : ""}
+        ${has ? `<span class="tb-gap"></span>
+          <button class="btn btn-outline" data-act="c-copy" title="${whose}을 그대로 또는 다음 학년도로 복사합니다">${icon("copy", 16, "")}복사하기${nTag}</button>
+          <button class="btn btn-danger" data-act="c-del" title="${whose}을 삭제합니다(되살리기 가능)">삭제${nTag}</button>` : ""}
       </div>
       ${has ? `<div class="clist-tools">
         <div class="clist-search">
-          <label class="cpick cpick-all" title="보이는 계약 모두 고르기"><input type="checkbox" id="cpickAll" aria-label="보이는 계약 모두 고르기" ${nPick && nPick === data.contracts.length ? "checked" : ""}/></label>
+          <label class="cpick cpick-all" title="보이는 계약 모두 고르기 · 풀기"><input type="checkbox" id="cpickAll" aria-label="보이는 계약 모두 고르기" ${nPick && nPick === data.contracts.length ? "checked" : ""}/></label>
           <input type="search" id="listQ" value="${esc(listQ)}" placeholder="계약명 · 업체명으로 찾기" aria-label="계약 찾기" /></div>
         <div class="fpills" role="group" aria-label="진행 상태로 거르기">${pills}</div></div>` : ""}
-      ${pickBar}
-      <ul class="clist">${list}${has ? `<li class="empty-note no-hit" hidden>맞는 계약이 없습니다.</li>` : `<li class="empty-note">아직 계약이 없습니다. [+ 계약 추가]나 [나라장터에서 가져오기]를 누르세요.</li>`}</ul>
+      <ul class="clist">${has ? `<li class="clist-th" aria-hidden="true"><span></span><span>계약명</span><span>업체</span><span>기간</span><span>금액</span><span>상태</span></li>` : ""}${list}${has ? `<li class="empty-note no-hit" hidden>맞는 계약이 없습니다.</li>` : `<li class="empty-note">아직 계약이 없습니다. [+ 계약 추가]나 [나라장터에서 가져오기]를 누르세요.</li>`}</ul>
     </section></div>
     <div class="col">${sel ? viewContractForm(sel) : `<section class="card"><p class="empty-note">왼쪽 [+ 계약 추가]를 누르세요.</p></section>`}</div>
   </div>`;
+}
+
+// 금액은 숫자만 저장하고, 칸에는 천 단위 쉼표를 찍어 보여 준다
+const moneyDigits = (v) => String(v ?? "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+const commas = (d) => d.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+function manWon(d) {
+  const n = Number(d);
+  if (!n) return "";
+  const eok = Math.floor(n / 1e8), man = Math.floor((n % 1e8) / 1e4), won = n % 1e4;
+  return [eok && `${eok.toLocaleString("ko-KR")}억`, man && `${man.toLocaleString("ko-KR")}만`, won && won.toLocaleString("ko-KR")]
+    .filter(Boolean).join(" ") + "원";
+}
+
+function moneyField(c, key, label) {
+  const d = moneyDigits(c[key]);
+  return `<label class="field"><span>${label}</span>
+    <input type="text" data-cfield="${key}" data-money value="${esc(commas(d))}" class="money${d ? "" : " empty"}" placeholder="15,600,000" inputmode="numeric" autocomplete="off" />
+    <small class="field-note money-note">${d ? esc(manWon(d)) : "숫자만 치면 쉼표가 찍힙니다"}</small></label>`;
 }
 
 function cfield(c, key, label, opts = {}) {
@@ -1093,7 +1115,7 @@ function viewContractForm(c) {
       ${cfield(c, "시작일", "계약 시작일", { type: "date" })}
       ${cfield(c, "종료일", "계약 종료일", { type: "date" })}
       ${cfield(c, "점검요일", "점검요일", { options: WEEKDAYS })}
-      ${cfield(c, "계약금액", "계약금액(원)", { num: true, ph: "15600000" })}
+      ${moneyField(c, "계약금액", "계약금액(원)")}
     </div>
     <p class="hint" style="margin-top:14px">계약기간: <b>${days ? days + "일" : "—"}</b></p>
   </section>
@@ -1287,7 +1309,10 @@ async function g2bImport() {
     return;
   }
   const today = todayIso();
-  const y = +today.slice(0, 4);
+  // 기본 기간 = 이번 달 1일 ~ 말일
+  const [y, m] = today.split("-").map(Number);
+  const monthFrom = `${y}-${String(m).padStart(2, "0")}-01`;
+  const monthTo = `${y}-${String(m).padStart(2, "0")}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
   const dlg = $("#dlg");
   if (dlg.open) dlg.close();
   let found = [];
@@ -1298,13 +1323,13 @@ async function g2bImport() {
     <div class="dlg-body">
       <p><b>${esc(data.org.기관명 || "우리 기관")}</b>이 나라장터에 등록한 계약을 찾아 계약명 · 기간 · 금액 · 업체를 한꺼번에 넣습니다.</p>
       <div class="imp-form">
-        <label class="field"><span>계약 체결일 — 부터</span><input type="date" id="impFrom" value="${y}-01-01" /></label>
-        <label class="field"><span>까지</span><input type="date" id="impTo" value="${today}" /></label>
+        <label class="field"><span>계약 체결일 — 부터</span><input type="date" id="impFrom" value="${monthFrom}" /></label>
+        <label class="field"><span>까지</span><input type="date" id="impTo" value="${monthTo}" /></label>
         <div class="field"><span>구분</span><div class="imp-biz">
           ${BIZ.map(([k, n, on]) => `<label class="chip auto"><input type="checkbox" data-biz="${k}" ${on ? "checked" : ""}/> ${n}</label>`).join("")}
         </div></div>
       </div>
-      <p class="hint">나라장터에 등록된 계약만 나옵니다. 학교장터(S2B) · 소액 수의계약은 빠질 수 있습니다. 1년치는 30초쯤 걸립니다.</p>
+      <p class="hint">나라장터에 등록된 계약만 나옵니다. 학교장터(S2B) · 소액 수의계약은 빠질 수 있습니다. 한 달은 몇 초, 1년치는 30초쯤 걸립니다.</p>
       <div id="impOut"></div>
     </div>
     <div class="dlg-btns" id="impBtns">
@@ -1573,6 +1598,24 @@ view.addEventListener("input", (e) => {
     if (t.dataset.path === "org.기관명") showOrgName();
     changed();
   }
+  if (t.hasAttribute?.("data-money")) {
+    const c = cById(selId);
+    const pos = t.selectionStart ?? t.value.length;
+    const before = moneyDigits(t.value.slice(0, pos)).length; // 커서 앞 숫자 개수
+    const d = moneyDigits(t.value);
+    c[t.dataset.cfield] = d;
+    t.value = commas(d);
+    let p = 0, seen = 0;
+    while (p < t.value.length && seen < before) { if (/\d/.test(t.value[p])) seen++; p++; }
+    try { t.setSelectionRange(p, p); } catch {}
+    t.classList.toggle("empty", !d);
+    const note = t.parentElement.querySelector(".money-note");
+    if (note) note.textContent = d ? manWon(d) : "숫자만 치면 쉼표가 찍힙니다";
+    const rowAmt = view.querySelector(".crow.sel .amt");
+    if (rowAmt) rowAmt.textContent = d ? manWon(d) : "";
+    changed();
+    return;
+  }
   if (t.dataset.cfield && t.tagName === "INPUT" && t.type !== "date") {
     const c = cById(selId);
     c[t.dataset.cfield] = t.value;
@@ -1744,7 +1787,7 @@ view.addEventListener("click", (e) => {
     tab = "output"; render(); window.scrollTo({ top: 0 });
   } else if (act === "copy") copyContracts([selId]);
   else if (act === "c-copy") copyContracts();
-  else if (act === "c-del") deleteContracts([...cPicked]);
+  else if (act === "c-del") deleteContracts(cPicked.size ? [...cPicked] : selId ? [selId] : []);
   else if (act === "c-unpick") { cPicked.clear(); keepScroll(render); }
   else if (act === "g2b-import") g2bImport();
   else if (act === "org-reset") resetOrg();
