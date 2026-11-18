@@ -60,41 +60,62 @@ function unwrap(j) {
 }
 
 // ---------------------------------------------------------------- 계약 (kind=cntrct)
-// ※ 응답 칸 이름은 명세서에 영문명이 비어 있어 짐작이다. 배포 뒤 peek=1 로 원본을 보고 맞춘다.
+// 2026-11-19 실제 응답으로 맞춘 칸 이름(용역 · 공사). 계약기관은 insttDivCd=1 + insttCd(=수요기관코드 꼴, 경기도교육청 7530000).
+//   용역: cntrctNm · cntrctPrd("2026/01/01~2026/12/31" 또는 끝날만 "2026/12/31" · "20170831") · wbgnDate(착수) · thtmScmpltDate/ttalScmpltDate(완수)
+//   공사: cnstwkNm · cntrctPrd("금차 125일, 총공사 125일") · cbgnDate(착공) · thtmCcmpltDate/ttalCcmpltDate(준공)
+//   공통: untyCntrctNo · cntrctCnclsDate · totCntrctAmt(장기계속이면 0) · thtmCntrctAmt · cntrctCnclsMthdNm
+//   corpList: "[1^주계약업체^단독^업체명^대표자^대한민국^지분^업체명^^사업자번호],[2^…]"
 const pick = (r, ...keys) => { for (const k of keys) { const v = str(r[k]); if (v) return v; } return ""; };
 const DATE_RE = /(20\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})/;
 const isoOf = (s) => {
   const m = str(s).match(DATE_RE);
   return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : "";
 };
-const findKey = (r, re) => Object.keys(r).find((k) => re.test(k) && str(r[k]));
+const addDays = (iso, n) => {
+  const d = new Date(iso + "T00:00:00Z");
+  if (isNaN(d)) return "";
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
-// "[1^…^업체명^대표자^…^사업자번호],[2^…]" 꼴 ― 칸 순서를 몰라도 되게 생김새로 고른다
+// 첫 업체(주계약업체). 칸 순서가 다르게 와도 사업자번호는 10자리 숫자로 찾는다
 function firstCorp(list) {
   const first = str(list).replace(/^\[|\]$/g, "").split(/\],\s*\[/)[0] || "";
-  const parts = first.split("^").map(str).filter(Boolean);
-  const bizIdx = parts.findIndex((p) => /^\d{3}-?\d{2}-?\d{5}$/.test(p));
-  const words = parts.filter((p) => /[가-힣A-Za-z]/.test(p) && !/^(단독|공동|분담|주계약|대한민국|한국|KR|Y|N|국내|국외)$/i.test(p));
-  return { name: words[0] || "", ceo: words[1] || "", bizno: bizIdx >= 0 ? fmtBizno(parts[bizIdx]) : "" };
+  const parts = first.split("^").map(str);
+  const bizno = parts.find((p) => /^\d{3}-?\d{2}-?\d{5}$/.test(p)) || "";
+  return { name: parts[3] || parts[7] || "", ceo: parts[4] || "", bizno: bizno ? fmtBizno(bizno) : "" };
 }
 
 function normalizeCntrct(biz, r) {
-  const period = pick(r, "cntrctPrd", "cntrctPrdNm");
+  const period = pick(r, "cntrctPrd");
   const dates = (period.match(new RegExp(DATE_RE.source, "g")) || []).map(isoOf);
-  const startKey = findKey(r, /(cmmnc|strt|bgn|begin|stDate)/i);
-  const endKey = findKey(r, /(cmpltn|ccmplt|cmpl|endDate|expir)/i);
-  const corp = firstCorp(pick(r, "corpList", "cntrctCorpList"));
+  const signed = isoOf(pick(r, "cntrctCnclsDate", "cntrctDate"));
+  const begin = isoOf(pick(r, "wbgnDate", "cbgnDate"));
+  const finish = isoOf(pick(r, "ttalScmpltDate", "thtmScmpltDate", "ttalCcmpltDate", "thtmCcmpltDate"));
+  let start = "", end = "";
+  if (dates.length >= 2) [start, end] = dates;
+  else {
+    end = dates[0] || finish;               // 날짜가 하나면 그것이 끝날
+    start = begin || signed;                // 착수 · 착공일, 없으면 계약일
+    if (!end && start) {                    // "총공사 125일" 꼴
+      const n = +(period.match(/총[^\d]*(\d+)\s*일/) || period.match(/(\d+)\s*일/) || [])[1];
+      if (n > 0) end = addDays(start, n - 1);
+    }
+  }
+  if (start && end && end < start) start = signed && signed <= end ? signed : "";
+  const amt = (k) => +(str(r[k]).replace(/\D/g, "")) || 0;
+  const corp = firstCorp(r.corpList);
   return {
-    no: pick(r, "untyCntrctNo", "dcsnCntrctNo", "cntrctNo", "cntrctRefNo"),
+    // 같은 확정계약번호가 다시 등록되면 통합계약번호만 새로 붙는다 ― 확정계약번호로 하나로 본다
+    no: pick(r, "dcsnCntrctNo", "cntrctRefNo", "untyCntrctNo"),
     biz,
     name: pick(r, "cntrctNm", "cnstwkNm", "prdctClsfcNoNm"),
-    date: isoOf(pick(r, "cntrctCnclsDate", "cntrctDate", "cntrctCnclsDt")),
-    start: dates[0] || isoOf(startKey ? r[startKey] : ""),
-    end: dates[1] || isoOf(endKey ? r[endKey] : ""),
+    date: signed,
+    start, end,
     period,
-    amount: pick(r, "totCntrctAmt", "thtmCntrctAmt", "cntrctAmt").replace(/\D/g, ""),
+    amount: String(amt("totCntrctAmt") || amt("thtmCntrctAmt") || ""),
     corp: corp.name, ceo: corp.ceo, bizno: corp.bizno,
-    method: pick(r, "cntrctMthdNm", "cntrctCnclsMthdNm"),
+    method: pick(r, "cntrctCnclsMthdNm"),
   };
 }
 
@@ -110,7 +131,7 @@ async function cntrct(res, url, key) {
   const from = parseYmd(url.searchParams.get("from") || ""), to = parseYmd(url.searchParams.get("to") || "");
   if (!from || !to || to < from) return send(res, 400, { error: "기간(from · to, YYYYMMDD)을 확인해 주세요." });
   if ((to - from) / 864e5 + 1 > MAX_SPAN) return send(res, 400, { error: `한 번에 ${MAX_SPAN}일까지만 찾습니다.` });
-  const div = url.searchParams.get("div") || "1"; // 기관구분코드 ― 1 계약기관(짐작). 배포 뒤 확인
+  const div = url.searchParams.get("div") || "1"; // 기관구분코드 1 = 계약기관(2026-11-19 확인: 학교 코드로 그 학교가 맺은 계약이 나온다)
   const peek = url.searchParams.get("peek") === "1";
 
   const chunks = [];
@@ -134,7 +155,8 @@ async function cntrct(res, url, key) {
   };
 
   try {
-    const rows = (await Promise.all(chunks.map((c) => ask(c)))).flat();
+    const rows = (await Promise.all(chunks.map((c) => ask(c)))).flat()
+      .sort((a, b) => str(b.rgstDt).localeCompare(str(a.rgstDt))); // 같은 계약이 여럿이면 가장 나중 등록을 남긴다
     if (peek) return send(res, 200, { chunks, raw: rows.slice(0, 3) });
     const seen = new Set();
     const items = rows.map((x) => normalizeCntrct(biz, x)).filter((x) => {
@@ -191,3 +213,4 @@ export default async function handler(req, res) {
     return send(res, 504, { error: "조달청에 연결하지 못했습니다. 잠시 뒤 다시 해 주세요." });
   }
 }
+export { normalizeCntrct }; // 시험용(web/test)
