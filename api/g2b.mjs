@@ -1,6 +1,8 @@
 // 나라장터(조달청 사용자정보 서비스) 찾기 중계 ― Vercel 함수 /api/g2b (ES 모듈이라 .mjs)
 //   ?kind=corp&q=사업자등록번호   → 조달업체 기본정보(업체명 · 대표자 · 주소 · 전화 · 팩스)
-//   ?kind=inst&q=사업자등록번호   → 수요기관 정보(학교 · 교육지원청의 고유번호로 기관명 · 주소 · 전화 · 팩스)
+//   ?kind=inst&q=사업자등록번호   → 수요기관 정보(학교 · 교육지원청의 고유번호로 기관명 · 주소 · 전화 · 팩스 · 기관코드)
+//   ?kind=cntrct&biz=servc|cnstwk|thng&code=기관코드(또는 name=기관명)&from=YYYYMMDD&to=YYYYMMDD
+//                                 → 그 기관이 나라장터에 등록한 계약(계약명 · 기간 · 금액 · 업체). 조달청_나라장터 계약정보서비스
 // 공공데이터포털 인증키(DATA_GO_KR_KEY)를 웹페이지에 드러내지 않으려고 둔다.
 // 묻는 번호만 조달청에 넘기고 아무것도 저장 · 기록하지 않는다.
 // 개발 중에는 web/vite.config.js 가 같은 함수를 /api/g2b 로 붙인다(키는 web/.env.local).
@@ -11,6 +13,11 @@
 
 const BASE = "https://apis.data.go.kr/1230000/ao/UsrInfoService02/";
 const OPS = { corp: "getPrcrmntCorpBasicInfo02", inst: "getDminsttInfo02" };
+// 나라장터검색조건에 의한 계약현황 ― 용역 · 공사 · 물품
+const CBASE = "https://apis.data.go.kr/1230000/ao/CntrctInfoService/";
+const COPS = { servc: "getCntrctInfoListServcPPSSrch", cnstwk: "getCntrctInfoListCnstwkPPSSrch", thng: "getCntrctInfoListThngPPSSrch" };
+const CHUNK = 7;     // 2026-11-10 부터 한 번에 7일까지만 받는다(공공데이터포털 공지)
+const MAX_SPAN = 35; // 함수 한 번에 묻는 기간 ― 7일 조각 5개를 함께
 
 function send(res, status, body, cache) {
   res.statusCode = status;
@@ -29,6 +36,7 @@ function normalize(kind, r) {
   return {
     name: str(kind === "corp" ? r.corpNm : r.dminsttNm),
     short: str(r.dminsttAbrvtNm), // 수요기관 약칭(학교 · 교육지원청 이름만)
+    code: str(r.dminsttCd), // 수요기관코드 ― 계약 가져오기에 쓴다
     bizno: fmtBizno(r.bizno),
     ceo: str(r.ceoNm),
     addr: [str(r.adrs), str(r.dtlAdrs)].filter(Boolean).join(" "),
@@ -51,6 +59,105 @@ function unwrap(j) {
   return { code, msg, rows: items || [] };
 }
 
+// ---------------------------------------------------------------- 계약 (kind=cntrct)
+// ※ 응답 칸 이름은 명세서에 영문명이 비어 있어 짐작이다. 배포 뒤 peek=1 로 원본을 보고 맞춘다.
+const pick = (r, ...keys) => { for (const k of keys) { const v = str(r[k]); if (v) return v; } return ""; };
+const DATE_RE = /(20\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})/;
+const isoOf = (s) => {
+  const m = str(s).match(DATE_RE);
+  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : "";
+};
+const findKey = (r, re) => Object.keys(r).find((k) => re.test(k) && str(r[k]));
+
+// "[1^…^업체명^대표자^…^사업자번호],[2^…]" 꼴 ― 칸 순서를 몰라도 되게 생김새로 고른다
+function firstCorp(list) {
+  const first = str(list).replace(/^\[|\]$/g, "").split(/\],\s*\[/)[0] || "";
+  const parts = first.split("^").map(str).filter(Boolean);
+  const bizIdx = parts.findIndex((p) => /^\d{3}-?\d{2}-?\d{5}$/.test(p));
+  const words = parts.filter((p) => /[가-힣A-Za-z]/.test(p) && !/^(단독|공동|분담|주계약|대한민국|한국|KR|Y|N|국내|국외)$/i.test(p));
+  return { name: words[0] || "", ceo: words[1] || "", bizno: bizIdx >= 0 ? fmtBizno(parts[bizIdx]) : "" };
+}
+
+function normalizeCntrct(biz, r) {
+  const period = pick(r, "cntrctPrd", "cntrctPrdNm");
+  const dates = (period.match(new RegExp(DATE_RE.source, "g")) || []).map(isoOf);
+  const startKey = findKey(r, /(cmmnc|strt|bgn|begin|stDate)/i);
+  const endKey = findKey(r, /(cmpltn|ccmplt|cmpl|endDate|expir)/i);
+  const corp = firstCorp(pick(r, "corpList", "cntrctCorpList"));
+  return {
+    no: pick(r, "untyCntrctNo", "dcsnCntrctNo", "cntrctNo", "cntrctRefNo"),
+    biz,
+    name: pick(r, "cntrctNm", "cnstwkNm", "prdctClsfcNoNm"),
+    date: isoOf(pick(r, "cntrctCnclsDate", "cntrctDate", "cntrctCnclsDt")),
+    start: dates[0] || isoOf(startKey ? r[startKey] : ""),
+    end: dates[1] || isoOf(endKey ? r[endKey] : ""),
+    period,
+    amount: pick(r, "totCntrctAmt", "thtmCntrctAmt", "cntrctAmt").replace(/\D/g, ""),
+    corp: corp.name, ceo: corp.ceo, bizno: corp.bizno,
+    method: pick(r, "cntrctMthdNm", "cntrctCnclsMthdNm"),
+  };
+}
+
+const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+const parseYmd = (s) => /^\d{8}$/.test(s) ? new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8))) : null;
+
+async function cntrct(res, url, key) {
+  const biz = url.searchParams.get("biz") || "servc";
+  if (!COPS[biz]) return send(res, 400, { error: "biz 는 servc · cnstwk · thng 입니다." });
+  const code = (url.searchParams.get("code") || "").replace(/\W/g, "");
+  const name = str(url.searchParams.get("name"));
+  if (!code && !name) return send(res, 400, { error: "기관코드나 기관명이 필요합니다." });
+  const from = parseYmd(url.searchParams.get("from") || ""), to = parseYmd(url.searchParams.get("to") || "");
+  if (!from || !to || to < from) return send(res, 400, { error: "기간(from · to, YYYYMMDD)을 확인해 주세요." });
+  if ((to - from) / 864e5 + 1 > MAX_SPAN) return send(res, 400, { error: `한 번에 ${MAX_SPAN}일까지만 찾습니다.` });
+  const div = url.searchParams.get("div") || "1"; // 기관구분코드 ― 1 계약기관(짐작). 배포 뒤 확인
+  const peek = url.searchParams.get("peek") === "1";
+
+  const chunks = [];
+  for (let a = from; a <= to; a = new Date(a.getTime() + CHUNK * 864e5)) {
+    const b = new Date(Math.min(a.getTime() + (CHUNK - 1) * 864e5, to.getTime()));
+    chunks.push([ymd(a), ymd(b)]);
+  }
+  const ask = async ([a, b], pageNo = 1) => {
+    const p = new URLSearchParams({ serviceKey: key, pageNo: String(pageNo), numOfRows: "100", type: "json",
+      inqryDiv: "1", inqryBgnDate: a, inqryEndDate: b, insttDivCd: div });
+    if (code) p.set("insttCd", code); else p.set("insttNm", name);
+    const r = await fetch(CBASE + COPS[biz] + "?" + p, { signal: AbortSignal.timeout(8000) });
+    const text = await r.text();
+    let out;
+    try { out = unwrap(JSON.parse(text)); }
+    catch { out = { code: "HTTP" + r.status, msg: (text.match(/<returnAuthMsg>([^<]*)/) || [])[1] || "응답을 읽지 못함", rows: [] }; }
+    if (!out.rows.length && out.code && out.code !== "00" && out.code !== "03") throw Object.assign(new Error(out.msg), { code: out.code });
+    // 한 주에 100건 넘으면 다음 쪽까지(학교 하나로는 거의 없다)
+    if (out.rows.length === 100 && pageNo < 5) out.rows.push(...(await ask([a, b], pageNo + 1)));
+    return out.rows;
+  };
+
+  try {
+    const rows = (await Promise.all(chunks.map((c) => ask(c)))).flat();
+    if (peek) return send(res, 200, { chunks, raw: rows.slice(0, 3) });
+    const seen = new Set();
+    const items = rows.map((x) => normalizeCntrct(biz, x)).filter((x) => {
+      const k = x.no || `${x.name}|${x.start}`;
+      if (!x.name || seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+    const past = to.getTime() < Date.now() - 864e5;
+    return send(res, 200, { items }, past ? "public, s-maxage=86400, max-age=3600" : "public, s-maxage=600, max-age=300");
+  } catch (e) {
+    if (e.code) return send(res, 502, { error: whyCode(e.code, e.message, "계약정보서비스") });
+    return send(res, 504, { error: "조달청에 연결하지 못했습니다. 잠시 뒤 다시 해 주세요." });
+  }
+}
+
+function whyCode(code, msg, what = "") {
+  return /^(30|31)$/.test(code) ? "인증키가 아직 등록되지 않았습니다(발급 뒤 1~2시간 걸릴 수 있습니다)."
+    : code === "22" ? "오늘 조회 한도를 다 썼습니다. 내일 다시 해 주세요."
+    : code === "20" ? `이 인증키에 ${what || "해당 기능"} 사용 권한이 없습니다(공공데이터포털에서 활용신청이 필요합니다).`
+    : code === "07" ? "조회 기간이 너무 깁니다(조달청 제한)."
+    : `조달청 응답: ${msg || code}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") return send(res, 405, { error: "GET 만 됩니다." });
   // 다른 사이트에서 이 중계를 끌어다 쓰지 못하게
@@ -59,12 +166,13 @@ export default async function handler(req, res) {
   const url = new URL(req.url, "http://local");
   const kind = url.searchParams.get("kind");
   const no = (url.searchParams.get("q") || "").replace(/\D/g, "");
-  if (!OPS[kind]) return send(res, 400, { error: "kind 는 corp 또는 inst 입니다." });
-  if (no.length !== 10) return send(res, 400, { error: "사업자등록번호(고유번호) 10자리로만 찾을 수 있습니다." });
+  if (!OPS[kind] && kind !== "cntrct") return send(res, 400, { error: "kind 는 corp · inst · cntrct 입니다." });
+  if (kind !== "cntrct" && no.length !== 10) return send(res, 400, { error: "사업자등록번호(고유번호) 10자리로만 찾을 수 있습니다." });
 
   let key = (process.env.DATA_GO_KR_KEY || "").trim();
   if (!key) return send(res, 503, { error: "서버에 공공데이터포털 인증키가 없습니다." });
   if (/%[0-9A-F]{2}/i.test(key)) { try { key = decodeURIComponent(key); } catch {} } // Encoding 키를 넣었어도
+  if (kind === "cntrct") return cntrct(res, url, key);
 
   try {
     const p = new URLSearchParams({ serviceKey: key, pageNo: "1", numOfRows: "10", type: "json", inqryDiv: "3", bizno: no });
@@ -75,11 +183,7 @@ export default async function handler(req, res) {
     catch { out = { code: "HTTP" + r.status, msg: (text.match(/<returnAuthMsg>([^<]*)/) || [])[1] || "응답을 읽지 못함", rows: [] }; }
 
     if (!out.rows.length && out.code && out.code !== "00" && out.code !== "03") {
-      const why = /^(30|31)$/.test(out.code) ? "인증키가 아직 등록되지 않았습니다(발급 뒤 1~2시간 걸릴 수 있습니다)."
-        : out.code === "22" ? "오늘 조회 한도를 다 썼습니다. 내일 다시 해 주세요."
-        : out.code === "20" ? "이 인증키에 해당 기능 사용 권한이 없습니다."
-        : `조달청 응답: ${out.msg || out.code}`;
-      return send(res, 502, { error: why });
+      return send(res, 502, { error: whyCode(out.code, out.msg) });
     }
     const items = out.rows.map((x) => normalize(kind, x)).filter((x) => x.name || x.bizno);
     return send(res, 200, { items }, "public, s-maxage=86400, max-age=600");
