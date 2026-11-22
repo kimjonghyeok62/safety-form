@@ -67,7 +67,7 @@ export function createSync(app) {
     if (!fileChanged || !hasContent(file)) return writeTarget();
 
     const pick = await app.choose("어느 내용을 쓸까요?",
-      `<p>이 컴퓨터와 ${esc(s.target.where)}의 내용이 서로 다릅니다. 하나를 고르면 다른 쪽은 그 내용으로 바뀝니다.</p>
+      `<p>이 컴퓨터와 ${esc(s.target.where)}의 내용이 서로 다릅니다. 하나를 선택하면 다른 쪽은 그 내용으로 바뀝니다.</p>
        <table class="cmp"><tr><th></th><th>마지막 수정</th><th>계약</th></tr>
          <tr><td>${esc(s.target.where)}</td><td>${esc(fmtWhen(fileU))}</td><td>${file.contracts.length}건</td></tr>
          <tr><td>이 컴퓨터</td><td>${esc(fmtWhen(localU))}</td><td>${data.contracts.length}건</td></tr></table>
@@ -80,7 +80,7 @@ export function createSync(app) {
     if (pick === "backup") { app.backup(); return reconcile(); }
     if (pick === "file") { await take(file); app.toast(`${s.target.where} 내용으로 바꿨습니다.`); return; }
     if (pick === "local") { await writeTarget(); app.toast(`이 컴퓨터 내용을 ${s.target.where}에 저장했습니다.`); return; }
-    throw new Error("어느 내용을 쓸지 고르지 않아 멈췄습니다");
+    throw new Error("어느 내용을 쓸지 선택하지 않아 멈췄습니다");
   }
 
   // mode: "connect" | "write" | "check"
