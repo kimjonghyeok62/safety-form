@@ -216,7 +216,7 @@ async function googleOff() {
   const pick = await choose("구글 계정 로그아웃",
     `<p>이 컴퓨터에서 구글 드라이브 자동 저장을 끕니다. 구글 드라이브에 저장된 내용은 그대로 남아,
       다시 로그인하면 이어서 쓸 수 있습니다.</p>
-     <p class="hint">여럿이 함께 쓰는 컴퓨터라면 [로그아웃하고 이 컴퓨터 내용 지우기]를 고르세요.</p>`,
+     <p class="hint">여럿이 함께 쓰는 컴퓨터라면 [로그아웃하고 이 컴퓨터 내용 지우기]를 선택하세요.</p>`,
     [
       { label: "로그아웃", value: "out", cls: "btn-primary" },
       { label: "로그아웃하고 이 컴퓨터 내용 지우기", value: "wipe", cls: "btn-danger" },
@@ -241,7 +241,7 @@ async function fileConnect(how) {
   try {
     handle = how === "new" ? await pickNew() : await pickExisting();
   } catch (err) {
-    if (err?.name !== "AbortError") toast("파일을 고르지 못했습니다: " + err.message);
+    if (err?.name !== "AbortError") toast("파일을 선택하지 못했습니다: " + err.message);
     return;
   }
   if ((await permission(handle, true)) !== "granted") { toast("파일에 저장하도록 허락해야 자동 저장이 켜집니다."); return; }
@@ -290,7 +290,7 @@ async function reconnect() {
     if ((await permission(t.meta.handle, true)) !== "granted") { toast("파일에 저장하도록 허락해 주세요."); return; }
     await sync.attach(t);
     if (sync.s.state === "error" && sync.s.error.includes("찾지 못했")) {
-      toast(`${sync.s.error}\n[저장 · 이어쓰기]에서 파일을 다시 골라 주세요.`, 8000);
+      toast(`${sync.s.error}\n[저장 · 이어쓰기]에서 파일을 다시 선택해 주세요.`, 8000);
       await clearLink(); sync.detach();
     } else if (sync.s.state === "ok") toast("자동 저장을 다시 켰습니다.");
   }
@@ -501,7 +501,7 @@ function viewSaveBody() {
   </section>`;
 
   return `<div id="savePage">${googleCard}${fileCard}
-    <div class="alert is-info">이 웹페이지에는 서버가 없습니다. 기관정보 · 계약정보는 이 컴퓨터와, 직접 고른 곳(내 구글 드라이브 · 내 파일)에만 저장됩니다.
+    <div class="alert is-info">이 웹페이지에는 서버가 없습니다. 기관정보 · 계약정보는 이 컴퓨터와, 직접 선택한 곳(내 구글 드라이브 · 내 파일)에만 저장됩니다.
       <a href="./privacy.html" target="_blank" rel="noopener">개인정보처리방침</a></div></div>`;
 }
 
@@ -514,7 +514,7 @@ function viewHelp() {
     <div class="step"><div class="step-head"><span class="step-no">2</span>계약정보</div>
       <p>계약명 · 기간 · 업체를 넣으면 계약유형과 작업유형(고소 · 화기 · 밀폐 · 전기)이 자동으로 정해집니다.</p></div>
     <div class="step"><div class="step-head"><span class="step-no">3</span>서식 출력</div>
-      <p>계약을 고르고 버튼을 누르면 hwpx 파일이 내려받아집니다. 한글에서 열어 고치고 인쇄합니다.</p></div>
+      <p>계약을 선택하고 버튼을 누르면 hwpx 파일이 내려받아집니다. 한글에서 열어 고치고 인쇄합니다.</p></div>
     <div class="step"><div class="step-head"><span class="step-no">4</span>진행 현황</div>
       <p>계약마다 시작 전 · 진행 중 · 완료와, 계약기간이 얼마나 지났는지(%)를 한눈에 봅니다. 따로 체크할 것은 없습니다.</p></div>
   </div>
@@ -585,7 +585,7 @@ function viewOrg() {
         <input data-path="org.기관명" value="${esc(nameVal)}" class="${nameVal.trim() ? "" : "empty"}" placeholder="○○초등학교" />
         <button type="button" class="btn btn-primary" data-act="school-find">${icon("search", 18, "")}찾기</button>
       </div>
-      ${schoolPanel() || `<small class="field-note">학교명을 넣고 [찾기]를 누르면 나이스에서 주소 · 대표전화 · 팩스번호를 채웁니다. 다른 학교를 고르면 고유번호는 비워집니다.</small>`}
+      ${schoolPanel() || `<small class="field-note">학교명을 넣고 [찾기]를 누르면 나이스에서 주소 · 대표전화 · 팩스번호를 채웁니다. 다른 학교를 선택하면 고유번호는 비워집니다.</small>`}
     </div>`
     : field("org.기관명", "기관명", { ph: "○○교육지원청", span: 2 });
 
@@ -844,6 +844,40 @@ function corpPick(h) {
 업체 담당자는 직접 넣어 주세요.`);
 }
 
+// 계약 가져오기 뒤: 사업자등록번호마다 [나라장터에서 찾기]를 대신 눌러 업체명 · 대표자 · 주소 · 전화를 채운다
+async function corpFillAll(list) {
+  const nos = [...new Set(list.map((c) => bizDigits(c.사업자번호)).filter((n) => n.length === 10))];
+  const base = `나라장터 계약 ${list.length}건을 넣었습니다.`;
+  if (!nos.length) { toast(`${base}\n점검요일 · 업체 담당자는 계약마다 직접 넣어 주세요.`, 6000); return; }
+  toast(`${base}\n업체 정보(${nos.length}곳)를 나라장터에서 찾는 중…`, 6000);
+  const hit = new Map();
+  const queue = [...nos];
+  let fail = 0;
+  const worker = async () => {
+    while (queue.length) {
+      const no = queue.shift();
+      try { const items = await g2b("corp", no); if (items[0]) hit.set(no, items[0]); else fail++; }
+      catch { fail++; }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  let n = 0;
+  list.forEach((c) => {
+    const h = hit.get(bizDigits(c.사업자번호));
+    if (!h || !data.contracts.includes(c)) return;
+    if (h.name) c.업체명 = h.name;
+    if (h.bizno) c.사업자번호 = h.bizno;
+    if (h.addr) c.업체주소 = h.addr;
+    if (h.ceo) c.업체대표 = h.ceo;
+    if (h.tel && !String(c.대표자전화 || "").trim()) c.대표자전화 = h.tel;
+    n++;
+  });
+  if (n) { changed(); keepFocus(render); }
+  toast(`${base}\n업체 정보 ${hit.size}곳(계약 ${n}건)을 채웠습니다.`
+    + (fail ? `\n${fail}곳은 못 찾았습니다 — 그 계약에서 [나라장터에서 찾기]를 눌러 주세요.` : "")
+    + `\n점검요일 · 업체 담당자는 계약마다 직접 넣어 주세요.`, 7000);
+}
+
 // 기관구분을 바꾸면: 지금 값을 보관 → 비움 → 그 기관구분으로 적어 둔 값이 있으면 되살림
 const STASH_ORG = ["기관명", "고유번호", "주소", "전화번호", "팩스번호", "기관코드", "번호기관"];
 
@@ -1038,7 +1072,7 @@ function viewContracts() {
     const when = c.시작일 ? `${fmtMD(c.시작일)}~${fmtMD(c.종료일)}` : "기간 없음";
     const amt = moneyDigits(c.계약금액);
     return `<li data-cid="${c.id}"${listHit(c) ? "" : " hidden"}${cPicked.has(c.id) ? ' class="is-picked"' : ""}>
-      <label class="cpick"><input type="checkbox" data-cpick="${c.id}" ${cPicked.has(c.id) ? "checked" : ""} aria-label="${esc((c.계약명 || "계약") + " 고르기")}"/></label>
+      <label class="cpick"><input type="checkbox" data-cpick="${c.id}" ${cPicked.has(c.id) ? "checked" : ""} aria-label="${esc((c.계약명 || "계약") + " 선택")}"/></label>
       <button data-sel="${c.id}" class="crow${st.state ? " is-" + st.state : ""}${c.id === selId ? " sel" : ""}"${c.id === selId ? ' aria-current="true"' : ""}>
         <span class="no">${i + 1}</span>
         <span class="nm" title="${esc(c.계약명 || "")}">${esc(c.계약명 || "(계약명 없음)")}</span>
@@ -1059,14 +1093,14 @@ function viewContracts() {
         ${has ? `<button type="button" class="link-btn is-danger" data-act="c-reset">목록 초기화</button>` : ""}</div>
       <div class="toolbar">
         <button class="btn btn-primary" data-act="add">+ 계약 추가</button>
-        <button class="btn btn-outline" data-act="g2b-import" title="우리 기관이 나라장터에 등록한 계약을 찾아 넣습니다">${icon("search", 18, "")}나라장터에서 가져오기</button>
+        <button class="btn btn-outline btn-g2b" data-act="g2b-import" title="우리 기관이 나라장터에 등록한 계약을 찾아 넣습니다">${icon("search", 18, "")}나라장터에서 가져오기</button>
         ${has ? `<span class="tb-gap"></span>
           <button class="btn btn-outline" data-act="c-copy" title="${whose}을 그대로 또는 다음 학년도로 복사합니다">${icon("copy", 16, "")}복사하기${nTag}</button>
           <button class="btn btn-danger" data-act="c-del" title="${whose}을 삭제합니다(되살리기 가능)">삭제${nTag}</button>` : ""}
       </div>
       ${has ? `<div class="clist-tools">
         <div class="clist-search">
-          <label class="cpick cpick-all" title="보이는 계약 모두 고르기 · 풀기"><input type="checkbox" id="cpickAll" aria-label="보이는 계약 모두 고르기" ${nPick && nPick === data.contracts.length ? "checked" : ""}/></label>
+          <label class="cpick cpick-all" title="보이는 계약 모두 선택 · 해제"><input type="checkbox" id="cpickAll" aria-label="보이는 계약 모두 선택" ${nPick && nPick === data.contracts.length ? "checked" : ""}/></label>
           <input type="search" id="listQ" value="${esc(listQ)}" placeholder="계약명 · 업체명으로 찾기" aria-label="계약 찾기" /></div>
         <div class="fpills" role="group" aria-label="진행 상태로 거르기">${pills}</div></div>` : ""}
       <ul class="clist">${has ? `<li class="clist-th" aria-hidden="true"><span></span><span>계약명</span><span>업체</span><span>기간</span><span>금액</span><span>상태</span></li>` : ""}${list}${has ? `<li class="empty-note no-hit" hidden>맞는 계약이 없습니다.</li>` : `<li class="empty-note">아직 계약이 없습니다. [+ 계약 추가]나 [나라장터에서 가져오기]를 누르세요.</li>`}</ul>
@@ -1181,7 +1215,7 @@ function vendorField(c) {
     `<option value="${esc(v.업체명)}">${esc([v.사업자번호, v.n > 1 ? `계약 ${v.n}건` : ""].filter(Boolean).join(" · "))}</option>`).join("");
   return cfield(c, "업체명", "업체명", {
     ph: "(주)○○용역", list: "vendorList",
-    note: book.size ? `지난 계약 업체 ${book.size}곳 — 골라 넣으면 나머지 칸이 채워집니다.` : "",
+    note: book.size ? `지난 계약 업체 ${book.size}곳 — 선택하면 나머지 칸이 채워집니다.` : "",
   }) + `<datalist id="vendorList">${opts}</datalist>`;
 }
 
@@ -1233,7 +1267,7 @@ function viewBoard() {
 
   return head + kpi + `
   <section class="card">
-    ${cardHead("chart", "계약별 진행", "막대는 계약기간 중 지난 만큼입니다. 누르면 그 계약으로 갑니다. 실제와 다르면 계약 화면의 [비고]에서 진행 · 완료를 직접 고르세요.")}
+    ${cardHead("chart", "계약별 진행", "막대는 계약기간 중 지난 만큼입니다. 누르면 그 계약으로 갑니다. 실제와 다르면 계약 화면의 [비고]에서 진행 · 완료를 직접 선택하세요.")}
     <ul class="plist">${list}</ul>
   </section>`;
 }
@@ -1255,7 +1289,7 @@ async function copyContracts(ids) {
     `<ul>${lis}</ul>
      <p><b>그대로 복사</b> — 계약명 뒤에 (사본)을 붙여 바로 아래에 만듭니다.<br>
        <b>다음 학년도로 복사</b> — 기간은 1년 뒤로, 계약명의 연도(2026학년도 → 2027학년도)도 바꿉니다.</p>
-     <p class="hint">업체 · 금액 · 작업유형은 그대로 두고, 진행 · 완료 직접 고른 것만 비웁니다. 원래 계약은 그대로 남습니다.</p>`,
+     <p class="hint">업체 · 금액 · 작업유형은 그대로 두고, 진행 · 완료 직접 선택한 것만 비웁니다. 원래 계약은 그대로 남습니다.</p>`,
     [
       { label: "그대로 복사", value: "same", cls: "btn-primary" },
       { label: "다음 학년도로 복사", value: "next", cls: "btn-primary" },
@@ -1361,7 +1395,7 @@ async function g2bImport() {
     out().innerHTML = !found.length
       ? `<p class="alert is-warn">이 기간에 나라장터에 등록된 계약이 없습니다. 기간 · 구분을 바꿔 보거나 직접 넣어 주세요.</p>`
       : `<p class="imp-sum">${found.length}건 찾음 · 새로 넣을 수 있는 것 ${nNew}건
-           <label><input type="checkbox" id="impAll" ${nNew ? "checked" : ""}/> 모두 고르기</label></p>
+           <label><input type="checkbox" id="impAll" ${nNew ? "checked" : ""}/> 모두 선택</label></p>
          <ul class="imp-list">${found.map((it, i) => {
            const dup = have(it);
            return `<li><label class="imp-item${dup ? " is-dup" : ""}">
@@ -1371,7 +1405,7 @@ async function g2bImport() {
                  ${it.corp ? ` · ${esc(it.corp)}` : ""}${it.amount ? ` · ${won(it.amount)}` : ""}${dup ? " · 이미 있습니다" : ""}</small></span></label></li>`;
          }).join("")}</ul>`;
     btns().innerHTML = found.length
-      ? `<button class="btn btn-primary" data-imp="add">고른 계약 넣기</button>
+      ? `<button class="btn btn-primary" data-imp="add">선택한 계약 넣기</button>
          <button class="btn btn-outline" data-imp="find">다시 찾기</button>
          <button class="btn btn-outline" data-imp="close">닫기</button>`
       : `<button class="btn btn-primary" data-imp="find">${icon("search", 18, "")}다시 찾기</button>
@@ -1383,7 +1417,7 @@ async function g2bImport() {
     const bizs = [...dlg.querySelectorAll("input[data-biz]:checked")].map((i) => i.dataset.biz);
     if (!from || !to || to < from) { out().innerHTML = `<p class="alert is-warn">기간을 확인해 주세요.</p>`; return; }
     if (toDay(to) - toDay(from) > 400) { out().innerHTML = `<p class="alert is-warn">한 번에 1년(400일)까지만 찾습니다.</p>`; return; }
-    if (!bizs.length) { out().innerHTML = `<p class="alert is-warn">구분을 하나 이상 골라 주세요.</p>`; return; }
+    if (!bizs.length) { out().innerHTML = `<p class="alert is-warn">구분을 하나 이상 선택해 주세요.</p>`; return; }
     btns().innerHTML = `<button class="btn btn-outline" data-imp="close">그만두고 닫기</button>`;
     out().innerHTML = `<p class="imp-prog">기관코드 확인 중…</p>`;
     let code;
@@ -1434,7 +1468,7 @@ async function g2bImport() {
 
   const add = () => {
     const picks = [...dlg.querySelectorAll("input[data-impi]:checked")].map((i) => found[+i.dataset.impi]).filter((it) => !have(it));
-    if (!picks.length) { toast("고른 계약이 없습니다."); return; }
+    if (!picks.length) { toast("선택한 계약이 없습니다."); return; }
     const made = picks.map((it) => newContract({
       계약명: it.name, 시작일: it.start || "", 종료일: it.end || "", 계약금액: it.amount || "",
       업체명: it.corp || "", 사업자번호: it.bizno || "", 업체대표: it.ceo || "", g2b: it.no || "",
@@ -1448,7 +1482,7 @@ async function g2bImport() {
     selId = made[0].id;
     close();
     changed(); render();
-    toast(`나라장터 계약 ${made.length}건을 넣었습니다.\n점검요일 · 업체 담당자는 계약마다 직접 넣어 주세요.`, 6000);
+    corpFillAll(made);
   };
 
   dlg.onclick = (e) => {
@@ -1485,7 +1519,7 @@ const EXPORTS = {
 const ON_DEMAND = [11, 12, 13, 14, 15]; // 필요할 때만 ― 번호는 서식 파일 이름(11_ … 15_)과 같게 둔다
 
 function viewOutput() {
-  const head = pageHead("서식 출력", "계약을 고르고 버튼을 누르면 <b>한글(hwpx) 파일</b>이 내려받아집니다. 여러 개면 zip 하나로 묶습니다.");
+  const head = pageHead("서식 출력", "계약을 선택하고 버튼을 누르면 <b>한글(hwpx) 파일</b>이 내려받아집니다. 여러 개면 zip 하나로 묶습니다.");
   if (!data.contracts.length) return head + `<section class="card"><p class="empty-note">[계약정보]에서 계약을 먼저 넣어 주세요.</p></section>`;
   const today = todayIso();
   const nos = COL_GROUPS.flatMap((g) => g.nos);
@@ -1500,7 +1534,7 @@ function viewOutput() {
       return `<td class="mark${ov ? " override" : ""}" data-mark="${c.id}:${no}" title="${esc(FORMS[no].title)} — 눌러서 ○ 바꾸기">${on ? "○" : ""}</td>`;
     }).join("");
     return `<tr class="${p}">
-      <td><input type="checkbox" data-check="${c.id}" ${checked.has(c.id) ? "checked" : ""} aria-label="${esc(c.계약명 || "계약")} 고르기" style="width:20px;height:20px"/></td>
+      <td><input type="checkbox" data-check="${c.id}" ${checked.has(c.id) ? "checked" : ""} aria-label="${esc(c.계약명 || "계약")} 선택" style="width:20px;height:20px"/></td>
       <td>${i + 1}</td>
       <td class="name">${esc(c.계약명)}</td>
       <td>${contractDays(c) ? contractDays(c) + "일" : ""}</td>
@@ -1519,10 +1553,10 @@ function viewOutput() {
 
   return head + `
   <section class="card">
-    ${cardHead("file", "① 계약 고르기", "맨 왼쪽 칸으로 출력할 계약을 고르세요. <b>○</b> 는 그 계약에 갖춰야 할 서식입니다(칸을 누르면 바꿀 수 있습니다).")}
+    ${cardHead("file", "① 계약 선택", "맨 왼쪽 칸으로 출력할 계약을 선택하세요. <b>○</b> 는 그 계약에 갖춰야 할 서식입니다(칸을 누르면 바꿀 수 있습니다).")}
     <div class="table-wrap"><table class="out">
       <thead>
-        <tr><th rowspan="2"><input type="checkbox" data-checkall aria-label="모두 고르기" style="width:20px;height:20px"/></th>
+        <tr><th rowspan="2"><input type="checkbox" data-checkall aria-label="모두 선택" style="width:20px;height:20px"/></th>
           <th rowspan="2">연번</th><th rowspan="2">계약명</th><th rowspan="2">기간</th><th rowspan="2">점검요일</th>${groupRow}</tr>
         <tr>${cols}</tr></thead>
       <tbody>${rows}</tbody>
@@ -1531,15 +1565,15 @@ function viewOutput() {
   </section>
 
   <section class="card">
-    ${cardHead("download", "② 받기", nPick ? `고른 계약 <b>${nPick}건</b> · ○ 표시된 서식 <b>${nForms}개</b>` : "먼저 위 표에서 계약을 고르세요.")}
+    ${cardHead("download", "② 받기", nPick ? `선택한 계약 <b>${nPick}건</b> · ○ 표시된 서식 <b>${nForms}개</b>` : "먼저 위 표에서 계약을 선택하세요.")}
     <button class="out-all" data-export="all" data-label="일괄출력">
       ${icon("download", 24, "")}
-      <span><b>일괄 출력</b><small>고른 계약의 ○ 표시된 서식 + 15. 계약이행 통합 서약서를 한 번에 받습니다 (zip, 계약마다 폴더)</small></span></button>
+      <span><b>일괄 출력</b><small>선택한 계약의 ○ 표시된 서식 + 15. 계약이행 통합 서약서를 한 번에 받습니다 (zip, 계약마다 폴더)</small></span></button>
 
     <h3 class="out-h">하나씩 받기</h3>
     <div class="out-tiles">${Object.entries(EXPORTS).map(([act, e]) => tile(act, e)).join("")}</div>
 
-    <h3 class="out-h">필요할 때만 <small>표의 ○ 와 상관없이, 고른 계약마다 한 부씩</small></h3>
+    <h3 class="out-h">필요할 때만 <small>표의 ○ 와 상관없이, 선택한 계약마다 한 부씩</small></h3>
     <div class="out-tiles is-sm">${ON_DEMAND.map((no) => tile(`single-${no}`, { label: FORMS[no].title, sub: "", tag: String(no) })).join("")}</div>
   </section>`;
 }
@@ -1554,7 +1588,7 @@ const safeDir = (s) => String(s).replace(/[\\/:*?"<>|·]/g, "").trim().slice(0, 
 
 async function runExport(act, btn) {
   const picked = data.contracts.filter((c) => checked.has(c.id) && String(c.계약명 || "").trim());
-  if (!picked.length) { toast("출력할 계약을 왼쪽 칸에서 골라 주세요."); return; }
+  if (!picked.length) { toast("출력할 계약을 왼쪽 칸에서 선택해 주세요."); return; }
   btn.disabled = true;
   const old = btn.innerHTML, label = btn.dataset.label || act;
   btn.classList.add("is-busy");

@@ -156,6 +156,8 @@ a { color: var(--primary); }
 .btn.green { background: #fff; color: var(--ok); border-color: #86efac; }
 .btn.green:hover:not(:disabled) { background: var(--ok-soft); border-color: var(--ok); }
 .btn-outline, .btn.grey { background: #fff; color: var(--fg); border-color: var(--line-strong); }
+.btn-g2b { border: 2px solid var(--primary); color: var(--primary); }
+.btn-g2b:hover:not(:disabled) { background: var(--primary-soft); border-color: var(--primary-hover); }
 .btn-danger, .btn.danger { background: #fff; color: var(--bad); border-color: #fecaca; }
 .btn-danger:hover:not(:disabled), .btn.danger:hover:not(:disabled) { background: var(--over-soft); border-color: var(--bad); }
 .btn-sm { min-height: 36px; padding: 0 12px; font-size: 0.95rem; }
